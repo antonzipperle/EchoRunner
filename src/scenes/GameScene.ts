@@ -16,6 +16,8 @@ import {
   TOUCH_DEADZONE,
 } from '../game/constants';
 import { Recording } from '../game/Recording';
+import { submitScore, type ScoreEntry } from '../game/leaderboard';
+import { sfx } from '../game/sound';
 
 type Ghost = {
   recording: Recording;
@@ -201,6 +203,7 @@ export class GameScene extends Phaser.Scene {
     this.scoreText.setText(String(this.score));
 
     this.cameras.main.flash(80, 246, 195, 68, false);
+    sfx.pickup();
 
     if (this.hintText) {
       const hint = this.hintText;
@@ -310,12 +313,13 @@ export class GameScene extends Phaser.Scene {
     this.isGameOver = true;
     this.player.setFillStyle(COLORS.playerDead);
     this.cameras.main.shake(200, 0.01);
+    sfx.gameOver();
 
     const { width, height } = ARENA;
     this.add.rectangle(width / 2, height / 2, width, height, COLORS.background, 0.75).setDepth(10);
 
     this.add
-      .text(width / 2, height / 2 - 90, title, {
+      .text(width / 2, 90, title, {
         fontFamily: 'monospace',
         fontSize: '48px',
         color: COLORS.text,
@@ -324,7 +328,7 @@ export class GameScene extends Phaser.Scene {
       .setDepth(11);
 
     this.add
-      .text(width / 2, height / 2 - 25, `Rounds survived: ${this.score}`, {
+      .text(width / 2, 145, `Rounds survived: ${this.score}`, {
         fontFamily: 'monospace',
         fontSize: '26px',
         color: COLORS.textMuted,
@@ -332,12 +336,14 @@ export class GameScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setDepth(11);
 
+    this.showLeaderboard(submitScore(this.score));
+
     const button = this.add
-      .rectangle(width / 2, height / 2 + 60, 240, 64, COLORS.player)
+      .rectangle(width / 2, 540, 240, 64, COLORS.player)
       .setDepth(11)
       .setInteractive({ useHandCursor: true });
     this.add
-      .text(width / 2, height / 2 + 60, 'RESTART', {
+      .text(width / 2, 540, 'RESTART', {
         fontFamily: 'monospace',
         fontSize: '28px',
         color: '#0d0f14',
@@ -350,7 +356,7 @@ export class GameScene extends Phaser.Scene {
     button.on('pointerup', () => this.scene.restart());
 
     this.add
-      .text(width / 2, height / 2 + 120, 'or press Space', {
+      .text(width / 2, 600, 'or press Space', {
         fontFamily: 'monospace',
         fontSize: '18px',
         color: COLORS.textMuted,
@@ -359,5 +365,38 @@ export class GameScene extends Phaser.Scene {
       .setDepth(11);
 
     this.input.keyboard!.once('keydown-SPACE', () => this.scene.restart());
+  }
+
+  private showLeaderboard({ entries, rank }: { entries: ScoreEntry[]; rank: number }) {
+    const { width } = ARENA;
+    const top = 200;
+    const rowHeight = 26;
+
+    if (entries.length === 0) {
+      this.add
+        .text(width / 2, top, 'No scores yet', {
+          fontFamily: 'monospace',
+          fontSize: '20px',
+          color: COLORS.textMuted,
+        })
+        .setOrigin(0.5)
+        .setDepth(11);
+      return;
+    }
+
+    entries.forEach((entry, i) => {
+      const isThisRun = i === rank;
+      const line =
+        `${String(i + 1).padStart(2)}.  ${String(entry.score).padStart(3)} rounds  ${entry.date}` +
+        (isThisRun ? '  <- you' : '');
+      this.add
+        .text(width / 2, top + i * rowHeight, line, {
+          fontFamily: 'monospace',
+          fontSize: '20px',
+          color: isThisRun ? '#4fd1c5' : COLORS.textMuted,
+        })
+        .setOrigin(0.5, 0)
+        .setDepth(11);
+    });
   }
 }

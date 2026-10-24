@@ -36,6 +36,12 @@ export const TARGET_MIN_DIST_FROM_GHOST_END = 80;
 // Touch controls: drag at least this many pixels from where the finger went down to move.
 export const TOUCH_DEADZONE = 12;
 
+// How many scores the local leaderboard keeps.
+export const LEADERBOARD_SIZE = 10;
+
+// Master volume for sound effects (0 to 1).
+export const SFX_VOLUME = 0.15;
+
 export const COLORS = {
   background: 0x0d0f14,
   wall: 0x2a3040,
