@@ -12,8 +12,6 @@ import {
   GHOST_HITBOX_SCALE,
   GHOST_TRAIL_ALPHA,
   GHOST_TRAIL_WIDTH,
-  GRID_ALPHA,
-  GRID_SIZE,
   JOYSTICK_RADIUS,
   NEAR_MISS_DIST,
   PICKUP_FLASH_ALPHA,
@@ -47,6 +45,8 @@ import {
   TOUCH_DEADZONE,
   WALL_SHIFT_ROUNDS,
 } from '../game/constants';
+import { applyHiResCamera } from '../game/hiRes';
+import { drawGrid, mixColor } from '../game/visuals';
 import { Recording } from '../game/Recording';
 import { submitScore, type ScoreEntry } from '../game/leaderboard';
 import { isMuted, sfx, toggleMuted } from '../game/sound';
@@ -114,7 +114,7 @@ export class GameScene extends Phaser.Scene {
     super('GameScene');
   }
 
-  create() {
+  create(data?: { fromMenu?: boolean }) {
     // scene.restart() reuses this instance, so reset all state here
     this.recordings = [];
     this.current = new Recording();
@@ -134,9 +134,12 @@ export class GameScene extends Phaser.Scene {
     this.boostCooldown = 0;
     this.lastDir.set(1, 0);
 
+    applyHiResCamera(this);
+    if (data?.fromMenu) this.cameras.main.fadeIn(250, 13, 15, 20); // matches the background color
+
     const { width, height, margin } = ARENA;
 
-    this.drawGrid();
+    drawGrid(this);
 
     // Arena wall
     this.wall = this.add
@@ -275,19 +278,7 @@ export class GameScene extends Phaser.Scene {
       return;
     }
     const t = Math.min(this.score / WALL_SHIFT_ROUNDS, 1);
-    this.wall.setStrokeStyle(2, this.mixColor(COLORS.wall, COLORS.wallHot, t));
-  }
-
-  private drawGrid() {
-    const { width, height, margin } = ARENA;
-    const grid = this.add.graphics().setDepth(-1);
-    grid.lineStyle(1, COLORS.wall, GRID_ALPHA);
-    for (let x = margin + GRID_SIZE; x < width - margin; x += GRID_SIZE) {
-      grid.lineBetween(x, margin, x, height - margin);
-    }
-    for (let y = margin + GRID_SIZE; y < height - margin; y += GRID_SIZE) {
-      grid.lineBetween(margin, y, width - margin, y);
-    }
+    this.wall.setStrokeStyle(2, mixColor(COLORS.wall, COLORS.wallHot, t));
   }
 
   private movePlayer() {
@@ -530,16 +521,9 @@ export class GameScene extends Phaser.Scene {
     this.tweens.add({ targets: wash, alpha: 0, duration: PICKUP_FLASH_MS, onComplete: () => wash.destroy() });
   }
 
-  // t from 0 (all `from`) to 1 (all `to`)
-  private mixColor(from: number, to: number, t: number): number {
-    const { ValueToColor, Interpolate, GetColor } = Phaser.Display.Color;
-    const c = Interpolate.ColorWithColor(ValueToColor(from), ValueToColor(to), 100, t * 100);
-    return GetColor(c.r, c.g, c.b);
-  }
-
   // Newest ghost is COLORS.ghost, older ones drift toward COLORS.ghostOld
   private ghostColor(age: number): number {
-    return this.mixColor(COLORS.ghost, COLORS.ghostOld, Math.min(age / GHOST_AGE_FADE_ROUNDS, 1));
+    return mixColor(COLORS.ghost, COLORS.ghostOld, Math.min(age / GHOST_AGE_FADE_ROUNDS, 1));
   }
 
   // Ghosts age every round, so recolor the rects and redraw the trails
@@ -658,14 +642,14 @@ export class GameScene extends Phaser.Scene {
     // Only the finger that started the drag steers, so tapping BOOST with a second finger is safe.
     this.input.on('pointerdown', (p: Phaser.Input.Pointer, over: Phaser.GameObjects.GameObject[]) => {
       if (over.length > 0 || this.touchStart) return; // buttons must not start a drag
-      this.touchStart = new Phaser.Math.Vector2(p.x, p.y);
+      this.touchStart = new Phaser.Math.Vector2(p.worldX, p.worldY); // world space, not canvas pixels
       this.touchPointerId = p.id;
       this.drawJoystick(0, 0, 0);
     });
     this.input.on('pointermove', (p: Phaser.Input.Pointer) => {
       if (!this.touchStart || p.id !== this.touchPointerId || !p.isDown) return;
-      const dx = p.x - this.touchStart.x;
-      const dy = p.y - this.touchStart.y;
+      const dx = p.worldX - this.touchStart.x;
+      const dy = p.worldY - this.touchStart.y;
       const len = Math.hypot(dx, dy);
       this.drawJoystick(dx, dy, len);
       if (len < TOUCH_DEADZONE) this.touchDir.set(0, 0);

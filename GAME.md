@@ -48,6 +48,11 @@ Single-screen arena game, Phaser 3 + TypeScript + Vite.
     running across rounds. A small bar under the button shows the recharge. Boosted moves are recorded, so ghosts dash too.
 16. [done] Clarity polish: the start hint mentions boost, ghosts within 70 px of you light up as a near-miss warning,
     and dragging on touch (or with the mouse) shows an on-screen joystick.
+17. [done] Sharp rendering: the canvas is drawn at 2x (2560x1440) with every camera zoomed 2x and all text rendered at 2x,
+    so text and UI stay crisp on big and high-DPI screens. Game logic still uses 1280x720 coordinates.
+18. [done] Animated start screen: the title drops in letter by letter with a red "echo" trailing it, and a looping demo
+    shows the idea (a runner on a figure-eight, its earlier laps appearing behind it as ghosts). Space, Enter or a tap starts
+    the game; M toggles sound; your best score shows if you have one.
 
 ## Later (ideas parked, not started)
 - More pickups: freeze (ghosts hold still for 1.5 s) and a rare shield that absorbs one hit.
@@ -59,6 +64,9 @@ Single-screen arena game, Phaser 3 + TypeScript + Vite.
 - `src/game/Recording.ts`: one round of positions, one per tick.
 - `src/game/sound.ts`: Web Audio sound effects (`sfx.pickup()`, `sfx.gameOver()`) and the mute switch.
 - `src/game/leaderboard.ts`: local top-10 scores in localStorage.
+- `src/game/hiRes.ts`: sharp rendering (2x canvas, camera zoom, 2x text). Every scene calls `applyHiResCamera(this)`.
+- `src/game/visuals.ts`: shared drawing helpers (arena grid, color mixing).
+- `src/scenes/StartScene.ts`: the animated start screen.
 - `src/scenes/GameScene.ts`: the game loop, input, collisions, game over screen.
 
 ## Current phase: playtest

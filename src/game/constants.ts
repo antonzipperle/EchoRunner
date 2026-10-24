@@ -6,6 +6,10 @@ export const ARENA = {
   margin: 40, // space between screen edge and arena wall
 };
 
+// The canvas is drawn this many times larger than the 1280x720 game space, so text and shapes
+// stay sharp on big and high-DPI screens. Game logic never sees this; see src/game/hiRes.ts.
+export const RENDER_SCALE = 2;
+
 // Fixed simulation step: 60 ticks per second, independent of the monitor's refresh rate.
 // Recordings are made per tick, so ghosts replay identically on every device.
 export const TICK_MS = 1000 / 60;
@@ -95,6 +99,12 @@ export const NEAR_MISS_DIST = 70;
 
 // Radius of the on-screen joystick ring drawn while dragging.
 export const JOYSTICK_RADIUS = 56;
+
+// Start screen demo: a runner loops a figure-eight and its past laps appear behind it as ghosts.
+export const START_LAP_MS = 6000; // one lap of the figure-eight
+export const START_GHOST_COUNT = 5;
+export const START_GHOST_LAG = 0.7; // radians of the lap that each ghost trails the one before
+export const START_GHOST_REVEAL_MS = 1500; // a new ghost appears this often
 
 // Touch controls: drag at least this many pixels from where the finger went down to move.
 export const TOUCH_DEADZONE = 12;
