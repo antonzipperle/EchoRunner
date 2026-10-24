@@ -36,8 +36,8 @@ export const BURST_MS = 400;
 // Ticks at the start of each round where ghosts can't hurt you (30 = 0.5 s).
 export const SPAWN_GRACE_TICKS = 30;
 
-// Ticks the player has to grab the target before the round is lost (600 = 10 s).
-export const ROUND_TIME_TICKS = 600;
+// Ticks the player has to grab the target before the round is lost (240 = 4 s).
+export const ROUND_TIME_TICKS = 240;
 
 // Targets spawn at least this far from the player...
 export const TARGET_MIN_DIST_FROM_PLAYER = 250;
