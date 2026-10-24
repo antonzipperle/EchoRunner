@@ -37,11 +37,13 @@ Single-screen arena game, Phaser 3 + TypeScript + Vite.
 11. [done] Visual polish (still rectangles and lines only): brighter ghost trails, a soft pickup flash instead of a hard one,
     a faint background grid, an arena wall that shifts color with the score, a score pop, a red timer and wall pulse
     in the last 1.5 s, and a pulsing ring around the ghost that caught you.
+12. [done] Pause (P, Esc, the on-screen button, or automatically when the window loses focus; tap to resume)
+    and mute (M or the on-screen button, remembered in localStorage).
 
 ## Where things live
 - `src/game/constants.ts`: all tuning knobs (speed, sizes, grace period, spawn distances).
 - `src/game/Recording.ts`: one round of positions, one per tick.
-- `src/game/sound.ts`: Web Audio sound effects (`sfx.pickup()`, `sfx.gameOver()`).
+- `src/game/sound.ts`: Web Audio sound effects (`sfx.pickup()`, `sfx.gameOver()`) and the mute switch.
 - `src/game/leaderboard.ts`: local top-10 scores in localStorage.
 - `src/scenes/GameScene.ts`: the game loop, input, collisions, game over screen.
 

@@ -5,6 +5,32 @@ import { SFX_VOLUME } from './constants';
 // so the browser's autoplay rules are satisfied.
 let ctx: AudioContext | null = null;
 
+// Mute is remembered between visits
+const MUTE_KEY = 'echo-runner-muted';
+let muted = loadMuted();
+
+function loadMuted(): boolean {
+  try {
+    return localStorage.getItem(MUTE_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function isMuted(): boolean {
+  return muted;
+}
+
+export function toggleMuted(): boolean {
+  muted = !muted;
+  try {
+    localStorage.setItem(MUTE_KEY, muted ? '1' : '0');
+  } catch {
+    // storage blocked: mute still works for this session
+  }
+  return muted;
+}
+
 function getContext(): AudioContext | null {
   if (!ctx) {
     try {
@@ -19,6 +45,7 @@ function getContext(): AudioContext | null {
 
 // One oscillator blip that slides from `from` to `to` Hz and fades out
 function blip(from: number, to: number, seconds: number, type: OscillatorType) {
+  if (muted) return;
   const audio = getContext();
   if (!audio) return;
 

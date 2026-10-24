@@ -29,7 +29,7 @@ import {
 } from '../game/constants';
 import { Recording } from '../game/Recording';
 import { submitScore, type ScoreEntry } from '../game/leaderboard';
-import { sfx } from '../game/sound';
+import { isMuted, sfx, toggleMuted } from '../game/sound';
 
 type Ghost = {
   recording: Recording;
@@ -65,6 +65,9 @@ export class GameScene extends Phaser.Scene {
   private accumulator = 0; // leftover time for the fixed timestep
   private score = 0;
   private isGameOver = false;
+  private isPaused = false;
+  private pauseUi: Phaser.GameObjects.GameObject[] = [];
+  private soundButton!: Phaser.GameObjects.Text;
 
   constructor() {
     super('GameScene');
@@ -79,6 +82,8 @@ export class GameScene extends Phaser.Scene {
     this.accumulator = 0;
     this.score = 0;
     this.isGameOver = false;
+    this.isPaused = false;
+    this.pauseUi = [];
     this.touchStart = null;
     this.touchDir.set(0, 0);
 
@@ -126,6 +131,17 @@ export class GameScene extends Phaser.Scene {
       .setDepth(5);
 
     this.setupInput();
+    this.createButtons();
+
+    // Pause when the window loses focus; the listener must go when the scene restarts
+    const onBlur = () => {
+      if (!this.isPaused && !this.isGameOver) this.togglePause();
+    };
+    this.game.events.on(Phaser.Core.Events.BLUR, onBlur);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.game.events.off(Phaser.Core.Events.BLUR, onBlur);
+    });
+
     this.spawnTarget();
 
     // Exposed in dev mode only, for debugging in the browser console
@@ -135,7 +151,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   update(_time: number, delta: number) {
-    if (this.isGameOver) return;
+    if (this.isGameOver || this.isPaused) return;
 
     // Fixed timestep: run as many 60 Hz ticks as fit into the elapsed time.
     // The cap stops a huge catch-up burst after switching browser tabs.
@@ -392,8 +408,13 @@ export class GameScene extends Phaser.Scene {
     this.cursors = keyboard.createCursorKeys();
     this.wasd = keyboard.addKeys('W,A,S,D') as WasdKeys;
 
+    keyboard.on('keydown-P', () => this.togglePause());
+    keyboard.on('keydown-ESC', () => this.togglePause());
+    keyboard.on('keydown-M', () => this.toggleMute());
+
     // Touch / mouse: drag like a virtual joystick from where you pressed down
-    this.input.on('pointerdown', (p: Phaser.Input.Pointer) => {
+    this.input.on('pointerdown', (p: Phaser.Input.Pointer, over: Phaser.GameObjects.GameObject[]) => {
+      if (over.length > 0) return; // pressing a button must not start a drag
       this.touchStart = new Phaser.Math.Vector2(p.x, p.y);
     });
     this.input.on('pointermove', (p: Phaser.Input.Pointer) => {
@@ -408,6 +429,76 @@ export class GameScene extends Phaser.Scene {
       this.touchStart = null;
       this.touchDir.set(0, 0);
     });
+  }
+
+  // ---------- Pause and mute ----------
+
+  private createButtons() {
+    const { width, margin } = ARENA;
+    const style = { fontFamily: 'monospace', fontSize: '16px', color: COLORS.textMuted };
+    const y = margin + 24;
+
+    const pause = this.add
+      .text(width / 2 - 90, y, 'PAUSE [P]', style)
+      .setOrigin(0.5)
+      .setDepth(5)
+      .setInteractive({ useHandCursor: true });
+    pause.on('pointerup', () => this.togglePause());
+
+    this.soundButton = this.add
+      .text(width / 2 + 90, y, '', style)
+      .setOrigin(0.5)
+      .setDepth(5)
+      .setInteractive({ useHandCursor: true });
+    this.soundButton.on('pointerup', () => this.toggleMute());
+    this.updateSoundLabel();
+  }
+
+  private updateSoundLabel() {
+    this.soundButton.setText(isMuted() ? 'SOUND OFF [M]' : 'SOUND ON [M]');
+  }
+
+  private toggleMute() {
+    if (!toggleMuted()) sfx.pickup(); // a blip confirms sound is back on
+    this.updateSoundLabel();
+  }
+
+  private togglePause() {
+    if (this.isGameOver) return;
+    this.isPaused = !this.isPaused;
+
+    if (!this.isPaused) {
+      this.pauseUi.forEach((o) => o.destroy());
+      this.pauseUi = [];
+      this.tweens.resumeAll();
+      this.accumulator = 0; // no catch-up burst for the time spent paused
+      return;
+    }
+
+    this.tweens.pauseAll();
+    const { width, height } = ARENA;
+    const dim = this.add
+      .rectangle(width / 2, height / 2, width, height, COLORS.background, 0.7)
+      .setDepth(20)
+      .setInteractive();
+    dim.on('pointerup', () => this.togglePause()); // tap anywhere to resume
+    const title = this.add
+      .text(width / 2, height / 2 - 20, 'PAUSED', {
+        fontFamily: 'monospace',
+        fontSize: '48px',
+        color: COLORS.text,
+      })
+      .setOrigin(0.5)
+      .setDepth(21);
+    const hint = this.add
+      .text(width / 2, height / 2 + 35, 'P, Esc or tap to resume', {
+        fontFamily: 'monospace',
+        fontSize: '20px',
+        color: COLORS.textMuted,
+      })
+      .setOrigin(0.5)
+      .setDepth(21);
+    this.pauseUi = [dim, title, hint];
   }
 
   private readInput(): Phaser.Math.Vector2 {
