@@ -41,6 +41,9 @@ Single-screen arena game, Phaser 3 + TypeScript + Vite.
     and mute (M or the on-screen button, remembered in localStorage).
 13. [done] Pickups: from round 2, a pickup sometimes appears beside the target and vanishes after 3 s.
     ERASE deletes your oldest ghost (and its trail); +TIME adds 1.5 s to the current round.
+14. [done] Pickup rework after playtesting (they cost more than they gave): pickups now appear on the way to the target
+    and last 4.5 s, ERASE removes the oldest half of your ghosts, and the round limit shrinks by 0.1 s per round
+    (floor 3 s) so +TIME matters.
 
 ## Where things live
 - `src/game/constants.ts`: all tuning knobs (speed, sizes, grace period, spawn distances).

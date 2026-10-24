@@ -14,15 +14,22 @@ import {
   PICKUP_FLASH_ALPHA,
   PICKUP_BLINK_TICKS,
   PICKUP_CHANCE,
+  PICKUP_ERASE_FRACTION,
   PICKUP_FLASH_MS,
   PICKUP_LIFETIME_TICKS,
   PICKUP_MIN_DIST_FROM_PLAYER,
   PICKUP_MIN_DIST_FROM_TARGET,
   PICKUP_MIN_ROUND,
+  PICKUP_OFFSET_MAX,
+  PICKUP_OFFSET_MIN,
+  PICKUP_PATH_T_MAX,
+  PICKUP_PATH_T_MIN,
   PICKUP_RADIUS,
   PICKUP_TIME_BONUS_TICKS,
   PLAYER_SIZE,
   PLAYER_SPEED,
+  ROUND_TIME_MIN_TICKS,
+  ROUND_TIME_SHRINK_TICKS,
   ROUND_TIME_TICKS,
   SCORE_POP_SCALE,
   SPAWN_GRACE_TICKS,
@@ -217,9 +224,10 @@ export class GameScene extends Phaser.Scene {
     if (this.tick >= this.timeLimit) this.gameOver('OUT OF TIME');
   }
 
-  // Round length in ticks, including time bonuses picked up this round
+  // Round length in ticks: shrinks as the score climbs, plus time bonuses picked up this round
   private get timeLimit(): number {
-    return ROUND_TIME_TICKS + this.bonusTicks;
+    const base = Math.max(ROUND_TIME_MIN_TICKS, ROUND_TIME_TICKS - this.score * ROUND_TIME_SHRINK_TICKS);
+    return base + this.bonusTicks;
   }
 
   private updateTimer() {
@@ -321,9 +329,20 @@ export class GameScene extends Phaser.Scene {
     const pad = margin + PICKUP_RADIUS * 2;
     const dist = Phaser.Math.Distance.Between;
 
+    // Aim for the stretch between the player and the target, pushed sideways a little,
+    // so grabbing it is a small detour instead of a trip across the arena
+    const dx = this.target.x - this.player.x;
+    const dy = this.target.y - this.player.y;
+    const len = Math.hypot(dx, dy) || 1;
+    const sideX = -dy / len;
+    const sideY = dx / len;
+
     for (let attempt = 0; attempt < 60; attempt++) {
-      const x = Phaser.Math.Between(pad, width - pad);
-      const y = Phaser.Math.Between(pad, height - pad);
+      const along = Phaser.Math.FloatBetween(PICKUP_PATH_T_MIN, PICKUP_PATH_T_MAX);
+      const side =
+        Phaser.Math.FloatBetween(PICKUP_OFFSET_MIN, PICKUP_OFFSET_MAX) * (Math.random() < 0.5 ? -1 : 1);
+      const x = Phaser.Math.Clamp(this.player.x + dx * along + sideX * side, pad, width - pad);
+      const y = Phaser.Math.Clamp(this.player.y + dy * along + sideY * side, pad, height - pad);
       const ok =
         dist(x, y, this.player.x, this.player.y) >= PICKUP_MIN_DIST_FROM_PLAYER &&
         dist(x, y, this.target.x, this.target.y) >= PICKUP_MIN_DIST_FROM_TARGET &&
@@ -382,20 +401,27 @@ export class GameScene extends Phaser.Scene {
       this.updateTimer();
       this.floatText(x, y, `+${((PICKUP_TIME_BONUS_TICKS * TICK_MS) / 1000).toFixed(1)} s`);
     } else {
-      this.eraseOldestGhost();
-      this.floatText(x, y, 'ERASED');
+      const erased = this.eraseOldestGhosts();
+      this.floatText(x, y, erased > 1 ? `ERASED ${erased}` : 'ERASED');
     }
   }
 
-  // The oldest ghost is index 0 in both lists, which are always pushed together
-  private eraseOldestGhost() {
-    const oldest = this.ghosts.shift();
-    if (!oldest) return;
-    this.recordings.shift();
-    this.burst(oldest.rect.x, oldest.rect.y, oldest.rect.fillColor);
-    oldest.rect.destroy();
-    oldest.trail.destroy();
-    this.refreshGhostColors(); // everyone is one round younger now
+  // Removes the oldest share of the ghosts (at least one) and returns how many went.
+  // The oldest ghost is index 0 in both lists, which are always pushed together.
+  private eraseOldestGhosts(): number {
+    const count = Math.min(
+      this.ghosts.length,
+      Math.max(1, Math.floor(this.ghosts.length * PICKUP_ERASE_FRACTION)),
+    );
+    for (let i = 0; i < count; i++) {
+      const oldest = this.ghosts.shift()!;
+      this.recordings.shift();
+      this.burst(oldest.rect.x, oldest.rect.y, oldest.rect.fillColor);
+      oldest.rect.destroy();
+      oldest.trail.destroy();
+    }
+    this.refreshGhostColors(); // the survivors are younger now
+    return count;
   }
 
   private clearPickup() {

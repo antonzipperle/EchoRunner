@@ -55,16 +55,28 @@ export const SPAWN_GRACE_TICKS = 30;
 
 // Ticks the player has to grab the target before the round is lost (300 = 5 s).
 export const ROUND_TIME_TICKS = 300;
+// ...and each completed round takes this many ticks off the limit, down to a floor.
+// That keeps the clock tight later in a run, so +TIME pickups are worth taking.
+export const ROUND_TIME_SHRINK_TICKS = 6; // 0.1 s per round
+export const ROUND_TIME_MIN_TICKS = 180; // 3 s floor
 
 // Pickups: rare extras that appear beside the target and vanish after a few seconds.
 export const PICKUP_RADIUS = 13;
 export const PICKUP_MIN_ROUND = 2; // score needed before pickups can appear
 export const PICKUP_CHANCE = 0.35; // chance per round
-export const PICKUP_LIFETIME_TICKS = 180; // 3 s
+export const PICKUP_LIFETIME_TICKS = 270; // 4.5 s
 export const PICKUP_BLINK_TICKS = 60; // blinks during its last second
 export const PICKUP_TIME_BONUS_TICKS = 90; // the time pickup adds 1.5 s to the round
-export const PICKUP_MIN_DIST_FROM_PLAYER = 150;
-export const PICKUP_MIN_DIST_FROM_TARGET = 120;
+// Pickups appear between the player and the target (PATH_T is how far along, 0 to 1),
+// pushed sideways by OFFSET pixels, so taking one is a small detour.
+export const PICKUP_PATH_T_MIN = 0.3;
+export const PICKUP_PATH_T_MAX = 0.7;
+export const PICKUP_OFFSET_MIN = 90;
+export const PICKUP_OFFSET_MAX = 180;
+export const PICKUP_MIN_DIST_FROM_PLAYER = 80;
+export const PICKUP_MIN_DIST_FROM_TARGET = 60;
+// ERASE removes this share of your ghosts, oldest first (at least one).
+export const PICKUP_ERASE_FRACTION = 0.5;
 
 // Targets spawn at least this far from the player...
 export const TARGET_MIN_DIST_FROM_PLAYER = 250;
