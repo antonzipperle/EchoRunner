@@ -44,6 +44,8 @@ Single-screen arena game, Phaser 3 + TypeScript + Vite.
 14. [done] Pickup rework after playtesting (they cost more than they gave): pickups now appear on the way to the target
     and last 4.5 s, ERASE removes the oldest half of your ghosts, and the round limit shrinks by 0.1 s per round
     (floor 3 s) so +TIME matters.
+15. [done] Boost: Shift (or the on-screen BOOST button) gives 0.25 s of 3x speed, then a 2.5 s cooldown that keeps
+    running across rounds. A small bar under the button shows the recharge. Boosted moves are recorded, so ghosts dash too.
 
 ## Where things live
 - `src/game/constants.ts`: all tuning knobs (speed, sizes, grace period, spawn distances).

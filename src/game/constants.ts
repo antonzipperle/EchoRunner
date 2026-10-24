@@ -13,6 +13,13 @@ export const TICK_MS = 1000 / 60;
 export const PLAYER_SIZE = 24;
 export const PLAYER_SPEED = 320; // pixels per second
 
+// Boost: a short burst of speed on Shift (or the on-screen button), then a cooldown.
+// The cooldown keeps running across rounds. Boosted movement is recorded like any other,
+// so your future ghosts dash too. At 3x for 15 ticks a boost covers about 240 px.
+export const BOOST_SPEED_MULT = 3;
+export const BOOST_TICKS = 15; // 0.25 s
+export const BOOST_COOLDOWN_TICKS = 150; // 2.5 s
+
 export const TARGET_SIZE = 28;
 
 // Ghost hitbox relative to the player size. Below 1 = more forgiving.

@@ -66,6 +66,7 @@ function blip(from: number, to: number, seconds: number, type: OscillatorType) {
 
 export const sfx = {
   pickup: () => blip(660, 1320, 0.12, 'square'),
+  boost: () => blip(280, 840, 0.14, 'sawtooth'),
   powerup: () => blip(520, 1040, 0.2, 'triangle'),
   gameOver: () => blip(220, 40, 0.5, 'sawtooth'),
 };

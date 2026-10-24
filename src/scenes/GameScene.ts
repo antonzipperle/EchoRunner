@@ -1,6 +1,9 @@
 import Phaser from 'phaser';
 import {
   ARENA,
+  BOOST_COOLDOWN_TICKS,
+  BOOST_SPEED_MULT,
+  BOOST_TICKS,
   BURST_DISTANCE,
   BURST_MS,
   BURST_PARTICLES,
@@ -79,7 +82,14 @@ export class GameScene extends Phaser.Scene {
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
   private wasd!: WasdKeys;
   private touchStart: Phaser.Math.Vector2 | null = null;
+  private touchPointerId: number | null = null; // the finger that owns the drag
   private touchDir = new Phaser.Math.Vector2();
+
+  private boostTicksLeft = 0; // ticks of boosted speed remaining
+  private boostCooldown = 0; // ticks until the next boost; not reset between rounds
+  private lastDir = new Phaser.Math.Vector2(1, 0); // so boosting while standing still still dashes
+  private boostButton!: Phaser.GameObjects.Text;
+  private boostBar!: Phaser.GameObjects.Graphics;
 
   private recordings: Recording[] = [];
   private current = new Recording();
@@ -114,7 +124,11 @@ export class GameScene extends Phaser.Scene {
     this.pickup = null;
     this.bonusTicks = 0;
     this.touchStart = null;
+    this.touchPointerId = null;
     this.touchDir.set(0, 0);
+    this.boostTicksLeft = 0;
+    this.boostCooldown = 0;
+    this.lastDir.set(1, 0);
 
     const { width, height, margin } = ARENA;
 
@@ -196,6 +210,7 @@ export class GameScene extends Phaser.Scene {
 
   private step() {
     this.movePlayer();
+    this.tickBoost();
     this.current.push(this.player.x, this.player.y);
 
     const graceOver = this.tick >= SPAWN_GRACE_TICKS;
@@ -262,21 +277,67 @@ export class GameScene extends Phaser.Scene {
   }
 
   private movePlayer() {
-    const dir = this.readInput();
+    let dir = this.readInput();
+    if (dir.lengthSq() > 0) this.lastDir.copy(dir);
+
+    const boosting = this.boostTicksLeft > 0;
+    if (boosting && dir.lengthSq() === 0) dir = this.lastDir; // dash even when no key is held
+    const speed = PLAYER_SPEED * (boosting ? BOOST_SPEED_MULT : 1);
+
     const dt = TICK_MS / 1000;
     const half = PLAYER_SIZE / 2;
     const { width, height, margin } = ARENA;
 
     this.player.x = Phaser.Math.Clamp(
-      this.player.x + dir.x * PLAYER_SPEED * dt,
+      this.player.x + dir.x * speed * dt,
       margin + half,
       width - margin - half,
     );
     this.player.y = Phaser.Math.Clamp(
-      this.player.y + dir.y * PLAYER_SPEED * dt,
+      this.player.y + dir.y * speed * dt,
       margin + half,
       height - margin - half,
     );
+  }
+
+  // ---------- Boost ----------
+
+  private tryBoost() {
+    if (this.isGameOver || this.isPaused || this.boostCooldown > 0) return;
+    this.boostTicksLeft = BOOST_TICKS;
+    this.boostCooldown = BOOST_COOLDOWN_TICKS;
+    sfx.boost();
+    this.updateBoostUi();
+  }
+
+  // Once per tick, after the player has moved
+  private tickBoost() {
+    if (this.boostTicksLeft > 0) {
+      this.afterimage();
+      this.boostTicksLeft--;
+    }
+    if (this.boostCooldown > 0) this.boostCooldown--;
+    this.updateBoostUi();
+  }
+
+  private afterimage() {
+    const ghost = this.add
+      .rectangle(this.player.x, this.player.y, PLAYER_SIZE, PLAYER_SIZE, COLORS.player, 0.5)
+      .setDepth(2);
+    this.tweens.add({ targets: ghost, alpha: 0, duration: 250, onComplete: () => ghost.destroy() });
+  }
+
+  private updateBoostUi() {
+    const ready = this.boostCooldown === 0;
+    this.boostButton.setColor(ready ? COLORS.text : COLORS.textMuted);
+
+    // Recharge bar under the button: full when ready
+    const barWidth = 100;
+    const { x, y } = this.boostButton;
+    const fill = 1 - this.boostCooldown / BOOST_COOLDOWN_TICKS;
+    this.boostBar.clear();
+    this.boostBar.fillStyle(COLORS.wall, 1).fillRect(x - barWidth / 2, y + 14, barWidth, 3);
+    this.boostBar.fillStyle(COLORS.player, 1).fillRect(x - barWidth / 2, y + 14, barWidth * fill, 3);
   }
 
   private nextRound() {
@@ -575,22 +636,28 @@ export class GameScene extends Phaser.Scene {
     keyboard.on('keydown-P', () => this.togglePause());
     keyboard.on('keydown-ESC', () => this.togglePause());
     keyboard.on('keydown-M', () => this.toggleMute());
+    // Shift, not Space: Space restarts after game over, and boost gets spammed near a death
+    keyboard.on('keydown-SHIFT', () => this.tryBoost());
 
-    // Touch / mouse: drag like a virtual joystick from where you pressed down
+    // Touch / mouse: drag like a virtual joystick from where you pressed down.
+    // Only the finger that started the drag steers, so tapping BOOST with a second finger is safe.
     this.input.on('pointerdown', (p: Phaser.Input.Pointer, over: Phaser.GameObjects.GameObject[]) => {
-      if (over.length > 0) return; // pressing a button must not start a drag
+      if (over.length > 0 || this.touchStart) return; // buttons must not start a drag
       this.touchStart = new Phaser.Math.Vector2(p.x, p.y);
+      this.touchPointerId = p.id;
     });
     this.input.on('pointermove', (p: Phaser.Input.Pointer) => {
-      if (!this.touchStart || !p.isDown) return;
+      if (!this.touchStart || p.id !== this.touchPointerId || !p.isDown) return;
       const dx = p.x - this.touchStart.x;
       const dy = p.y - this.touchStart.y;
       const len = Math.hypot(dx, dy);
       if (len < TOUCH_DEADZONE) this.touchDir.set(0, 0);
       else this.touchDir.set(dx / len, dy / len);
     });
-    this.input.on('pointerup', () => {
+    this.input.on('pointerup', (p: Phaser.Input.Pointer) => {
+      if (p.id !== this.touchPointerId) return;
       this.touchStart = null;
+      this.touchPointerId = null;
       this.touchDir.set(0, 0);
     });
   }
@@ -603,14 +670,23 @@ export class GameScene extends Phaser.Scene {
     const y = margin + 24;
 
     const pause = this.add
-      .text(width / 2 - 90, y, 'PAUSE [P]', style)
+      .text(width / 2 - 170, y, 'PAUSE [P]', style)
       .setOrigin(0.5)
       .setDepth(5)
       .setInteractive({ useHandCursor: true });
     pause.on('pointerup', () => this.togglePause());
 
+    this.boostButton = this.add
+      .text(width / 2, y, 'BOOST [SHIFT]', style)
+      .setOrigin(0.5)
+      .setDepth(5)
+      .setInteractive({ useHandCursor: true });
+    this.boostButton.on('pointerdown', () => this.tryBoost()); // on press, not release, for snappy taps
+    this.boostBar = this.add.graphics().setDepth(5);
+    this.updateBoostUi();
+
     this.soundButton = this.add
-      .text(width / 2 + 90, y, '', style)
+      .text(width / 2 + 170, y, '', style)
       .setOrigin(0.5)
       .setDepth(5)
       .setInteractive({ useHandCursor: true });
