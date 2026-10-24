@@ -1,0 +1,41 @@
+// All tuning knobs in one place. Playtest and tweak these first.
+
+export const ARENA = {
+  width: 1280,
+  height: 720,
+  margin: 40, // space between screen edge and arena wall
+};
+
+// Fixed simulation step: 60 ticks per second, independent of the monitor's refresh rate.
+// Recordings are made per tick, so ghosts replay identically on every device.
+export const TICK_MS = 1000 / 60;
+
+export const PLAYER_SIZE = 24;
+export const PLAYER_SPEED = 320; // pixels per second
+
+export const TARGET_SIZE = 28;
+
+// Ghost hitbox relative to the player size. Below 1 = more forgiving.
+export const GHOST_HITBOX_SCALE = 0.75;
+
+// Ticks at the start of each round where ghosts can't hurt you (30 = 0.5 s).
+export const SPAWN_GRACE_TICKS = 30;
+
+// Targets spawn at least this far from the player...
+export const TARGET_MIN_DIST_FROM_PLAYER = 250;
+// ...and at least this far from where any ghost will park when its recording ends.
+export const TARGET_MIN_DIST_FROM_GHOST_END = 80;
+
+// Touch controls: drag at least this many pixels from where the finger went down to move.
+export const TOUCH_DEADZONE = 12;
+
+export const COLORS = {
+  background: 0x0d0f14,
+  wall: 0x2a3040,
+  player: 0x4fd1c5,
+  playerDead: 0xe05d6f,
+  target: 0xf6c344,
+  ghost: 0xe05d6f,
+  text: '#e8ecf4',
+  textMuted: '#7d8799',
+};
