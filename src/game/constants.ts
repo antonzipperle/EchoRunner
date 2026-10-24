@@ -21,6 +21,9 @@ export const GHOST_HITBOX_SCALE = 0.75;
 // Ticks at the start of each round where ghosts can't hurt you (30 = 0.5 s).
 export const SPAWN_GRACE_TICKS = 30;
 
+// Ticks the player has to grab the target before the round is lost (600 = 10 s).
+export const ROUND_TIME_TICKS = 600;
+
 // Targets spawn at least this far from the player...
 export const TARGET_MIN_DIST_FROM_PLAYER = 250;
 // ...and at least this far from where any ghost will park when its recording ends.
@@ -35,6 +38,7 @@ export const COLORS = {
   player: 0x4fd1c5,
   playerDead: 0xe05d6f,
   target: 0xf6c344,
+  warning: '#e05d6f', // timer text in the last seconds
   ghost: 0xe05d6f,
   text: '#e8ecf4',
   textMuted: '#7d8799',

@@ -5,6 +5,7 @@ import {
   GHOST_HITBOX_SCALE,
   PLAYER_SIZE,
   PLAYER_SPEED,
+  ROUND_TIME_TICKS,
   SPAWN_GRACE_TICKS,
   TARGET_MIN_DIST_FROM_GHOST_END,
   TARGET_MIN_DIST_FROM_PLAYER,
@@ -30,6 +31,7 @@ export class GameScene extends Phaser.Scene {
   private player!: Phaser.GameObjects.Rectangle;
   private target!: Phaser.GameObjects.Rectangle;
   private scoreText!: Phaser.GameObjects.Text;
+  private timerText!: Phaser.GameObjects.Text;
   private hintText?: Phaser.GameObjects.Text;
 
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
@@ -83,6 +85,16 @@ export class GameScene extends Phaser.Scene {
         color: COLORS.text,
       })
       .setDepth(5);
+
+    this.timerText = this.add
+      .text(width - margin - 12, margin + 10, '', {
+        fontFamily: 'monospace',
+        fontSize: '32px',
+        color: COLORS.text,
+      })
+      .setOrigin(1, 0)
+      .setDepth(5);
+    this.updateTimer();
 
     this.hintText = this.add
       .text(width / 2, height - margin - 30, 'Grab the yellow square. Avoid your past.', {
@@ -139,6 +151,15 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.tick++;
+    this.updateTimer();
+
+    if (this.tick >= ROUND_TIME_TICKS) this.gameOver('OUT OF TIME');
+  }
+
+  private updateTimer() {
+    const remaining = Math.max(0, ROUND_TIME_TICKS - this.tick) * (TICK_MS / 1000);
+    this.timerText.setText(remaining.toFixed(1));
+    this.timerText.setColor(remaining <= 3 ? COLORS.warning : COLORS.text);
   }
 
   private movePlayer() {
@@ -172,6 +193,7 @@ export class GameScene extends Phaser.Scene {
     // All ghosts restart from tick 0 because tick is shared
     this.current = new Recording();
     this.tick = 0;
+    this.updateTimer();
     this.score++;
     this.scoreText.setText(String(this.score));
 
@@ -267,7 +289,7 @@ export class GameScene extends Phaser.Scene {
 
   // ---------- Game over ----------
 
-  private gameOver() {
+  private gameOver(title = 'CAUGHT BY YOUR PAST') {
     this.isGameOver = true;
     this.player.setFillStyle(COLORS.playerDead);
     this.cameras.main.shake(200, 0.01);
@@ -276,7 +298,7 @@ export class GameScene extends Phaser.Scene {
     this.add.rectangle(width / 2, height / 2, width, height, COLORS.background, 0.75).setDepth(10);
 
     this.add
-      .text(width / 2, height / 2 - 90, 'CAUGHT BY YOUR PAST', {
+      .text(width / 2, height / 2 - 90, title, {
         fontFamily: 'monospace',
         fontSize: '48px',
         color: COLORS.text,
