@@ -39,6 +39,8 @@ Single-screen arena game, Phaser 3 + TypeScript + Vite.
     in the last 1.5 s, and a pulsing ring around the ghost that caught you.
 12. [done] Pause (P, Esc, the on-screen button, or automatically when the window loses focus; tap to resume)
     and mute (M or the on-screen button, remembered in localStorage).
+13. [done] Pickups: from round 2, a pickup sometimes appears beside the target and vanishes after 3 s.
+    ERASE deletes your oldest ghost (and its trail); +TIME adds 1.5 s to the current round.
 
 ## Where things live
 - `src/game/constants.ts`: all tuning knobs (speed, sizes, grace period, spawn distances).

@@ -53,8 +53,18 @@ export const TIMER_WARNING_SECONDS = 1.5;
 // Ticks at the start of each round where ghosts can't hurt you (30 = 0.5 s).
 export const SPAWN_GRACE_TICKS = 30;
 
-// Ticks the player has to grab the target before the round is lost (240 = 4 s).
-export const ROUND_TIME_TICKS = 240;
+// Ticks the player has to grab the target before the round is lost (300 = 5 s).
+export const ROUND_TIME_TICKS = 300;
+
+// Pickups: rare extras that appear beside the target and vanish after a few seconds.
+export const PICKUP_RADIUS = 13;
+export const PICKUP_MIN_ROUND = 2; // score needed before pickups can appear
+export const PICKUP_CHANCE = 0.35; // chance per round
+export const PICKUP_LIFETIME_TICKS = 180; // 3 s
+export const PICKUP_BLINK_TICKS = 60; // blinks during its last second
+export const PICKUP_TIME_BONUS_TICKS = 90; // the time pickup adds 1.5 s to the round
+export const PICKUP_MIN_DIST_FROM_PLAYER = 150;
+export const PICKUP_MIN_DIST_FROM_TARGET = 120;
 
 // Targets spawn at least this far from the player...
 export const TARGET_MIN_DIST_FROM_PLAYER = 250;
@@ -77,6 +87,8 @@ export const COLORS = {
   player: 0x4fd1c5,
   playerDead: 0xe05d6f,
   target: 0xf6c344,
+  pickupTime: 0x7bd88f,
+  pickupEraser: 0xf2f2f2,
   warning: '#e05d6f', // timer text in the last seconds
   ghost: 0xe05d6f,
   ghostOld: 0x8a6cf0,

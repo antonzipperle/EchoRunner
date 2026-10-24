@@ -12,7 +12,15 @@ import {
   GRID_ALPHA,
   GRID_SIZE,
   PICKUP_FLASH_ALPHA,
+  PICKUP_BLINK_TICKS,
+  PICKUP_CHANCE,
   PICKUP_FLASH_MS,
+  PICKUP_LIFETIME_TICKS,
+  PICKUP_MIN_DIST_FROM_PLAYER,
+  PICKUP_MIN_DIST_FROM_TARGET,
+  PICKUP_MIN_ROUND,
+  PICKUP_RADIUS,
+  PICKUP_TIME_BONUS_TICKS,
   PLAYER_SIZE,
   PLAYER_SPEED,
   ROUND_TIME_TICKS,
@@ -35,6 +43,15 @@ type Ghost = {
   recording: Recording;
   rect: Phaser.GameObjects.Rectangle;
   trail: Phaser.GameObjects.Graphics;
+};
+
+type PickupKind = 'time' | 'eraser';
+
+type Pickup = {
+  kind: PickupKind;
+  disc: Phaser.GameObjects.Arc;
+  label: Phaser.GameObjects.Text;
+  ticksLeft: number;
 };
 
 type WasdKeys = {
@@ -61,6 +78,9 @@ export class GameScene extends Phaser.Scene {
   private current = new Recording();
   private ghosts: Ghost[] = [];
 
+  private pickup: Pickup | null = null;
+  private bonusTicks = 0; // extra time from pickups, for this round only
+
   private tick = 0; // tick within the current round
   private accumulator = 0; // leftover time for the fixed timestep
   private score = 0;
@@ -84,6 +104,8 @@ export class GameScene extends Phaser.Scene {
     this.isGameOver = false;
     this.isPaused = false;
     this.pauseUi = [];
+    this.pickup = null;
+    this.bonusTicks = 0;
     this.touchStart = null;
     this.touchDir.set(0, 0);
 
@@ -187,14 +209,21 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
+    this.updatePickup();
+
     this.tick++;
     this.updateTimer();
 
-    if (this.tick >= ROUND_TIME_TICKS) this.gameOver('OUT OF TIME');
+    if (this.tick >= this.timeLimit) this.gameOver('OUT OF TIME');
+  }
+
+  // Round length in ticks, including time bonuses picked up this round
+  private get timeLimit(): number {
+    return ROUND_TIME_TICKS + this.bonusTicks;
   }
 
   private updateTimer() {
-    const remaining = Math.max(0, ROUND_TIME_TICKS - this.tick) * (TICK_MS / 1000);
+    const remaining = Math.max(0, this.timeLimit - this.tick) * (TICK_MS / 1000);
     const warning = remaining <= TIMER_WARNING_SECONDS;
     this.timerText.setText(remaining.toFixed(1));
     this.timerText.setColor(warning ? COLORS.warning : COLORS.text);
@@ -259,6 +288,8 @@ export class GameScene extends Phaser.Scene {
     // All ghosts restart from tick 0 because tick is shared
     this.current = new Recording();
     this.tick = 0;
+    this.bonusTicks = 0;
+    this.clearPickup();
     this.score++;
     this.updateTimer(); // after the score changes, so the wall color picks it up
     this.scoreText.setText(String(this.score));
@@ -274,6 +305,113 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.spawnTarget();
+    this.maybeSpawnPickup();
+  }
+
+  // ---------- Pickups ----------
+
+  private maybeSpawnPickup() {
+    if (this.score < PICKUP_MIN_ROUND || Math.random() >= PICKUP_CHANCE) return;
+
+    // The eraser needs a ghost to erase
+    const kinds: PickupKind[] = this.ghosts.length > 0 ? ['time', 'eraser'] : ['time'];
+    const kind = Phaser.Utils.Array.GetRandom(kinds);
+
+    const { width, height, margin } = ARENA;
+    const pad = margin + PICKUP_RADIUS * 2;
+    const dist = Phaser.Math.Distance.Between;
+
+    for (let attempt = 0; attempt < 60; attempt++) {
+      const x = Phaser.Math.Between(pad, width - pad);
+      const y = Phaser.Math.Between(pad, height - pad);
+      const ok =
+        dist(x, y, this.player.x, this.player.y) >= PICKUP_MIN_DIST_FROM_PLAYER &&
+        dist(x, y, this.target.x, this.target.y) >= PICKUP_MIN_DIST_FROM_TARGET &&
+        this.recordings.every((r) => dist(x, y, r.end.x, r.end.y) >= TARGET_MIN_DIST_FROM_GHOST_END);
+      if (ok) {
+        this.createPickup(kind, x, y);
+        return;
+      }
+    }
+  }
+
+  private createPickup(kind: PickupKind, x: number, y: number) {
+    const color = kind === 'time' ? COLORS.pickupTime : COLORS.pickupEraser;
+    const disc = this.add.circle(x, y, PICKUP_RADIUS, color).setDepth(1);
+    const label = this.add
+      .text(x, y - PICKUP_RADIUS - 12, kind === 'time' ? '+TIME' : 'ERASE', {
+        fontFamily: 'monospace',
+        fontSize: '14px',
+        color: COLORS.text,
+      })
+      .setOrigin(0.5)
+      .setDepth(1);
+    this.tweens.add({ targets: disc, scale: 1.25, duration: 400, yoyo: true, repeat: -1 });
+    this.pickup = { kind, disc, label, ticksLeft: PICKUP_LIFETIME_TICKS };
+  }
+
+  // Once per tick: count down, blink near the end, and collect on touch
+  private updatePickup() {
+    const p = this.pickup;
+    if (!p) return;
+
+    if (--p.ticksLeft <= 0) {
+      this.clearPickup();
+      return;
+    }
+
+    const faded = p.ticksLeft < PICKUP_BLINK_TICKS && Math.floor(p.ticksLeft / 6) % 2 === 0;
+    p.disc.setAlpha(faded ? 0.25 : 1);
+    p.label.setAlpha(faded ? 0.25 : 1);
+
+    const reach = PLAYER_SIZE / 2 + PICKUP_RADIUS;
+    if (Phaser.Math.Distance.Between(this.player.x, this.player.y, p.disc.x, p.disc.y) < reach) {
+      this.collectPickup(p);
+    }
+  }
+
+  private collectPickup(p: Pickup) {
+    const { x, y } = p.disc;
+    const color = p.kind === 'time' ? COLORS.pickupTime : COLORS.pickupEraser;
+    this.clearPickup();
+    this.burst(x, y, color);
+    sfx.powerup();
+
+    if (p.kind === 'time') {
+      this.bonusTicks += PICKUP_TIME_BONUS_TICKS;
+      this.updateTimer();
+      this.floatText(x, y, `+${((PICKUP_TIME_BONUS_TICKS * TICK_MS) / 1000).toFixed(1)} s`);
+    } else {
+      this.eraseOldestGhost();
+      this.floatText(x, y, 'ERASED');
+    }
+  }
+
+  // The oldest ghost is index 0 in both lists, which are always pushed together
+  private eraseOldestGhost() {
+    const oldest = this.ghosts.shift();
+    if (!oldest) return;
+    this.recordings.shift();
+    this.burst(oldest.rect.x, oldest.rect.y, oldest.rect.fillColor);
+    oldest.rect.destroy();
+    oldest.trail.destroy();
+    this.refreshGhostColors(); // everyone is one round younger now
+  }
+
+  private clearPickup() {
+    if (!this.pickup) return;
+    this.tweens.killTweensOf(this.pickup.disc);
+    this.pickup.disc.destroy();
+    this.pickup.label.destroy();
+    this.pickup = null;
+  }
+
+  private floatText(x: number, y: number, text: string) {
+    const t = this.add
+      .text(x, y, text, { fontFamily: 'monospace', fontSize: '20px', color: COLORS.text })
+      .setOrigin(0.5)
+      .setDepth(6);
+    this.tweens.add({ targets: t, y: y - 40, alpha: 0, duration: 700, onComplete: () => t.destroy() });
   }
 
   private popScore() {
@@ -331,10 +469,10 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  private burst(x: number, y: number) {
+  private burst(x: number, y: number, color: number = COLORS.target) {
     for (let i = 0; i < BURST_PARTICLES; i++) {
       const angle = (i / BURST_PARTICLES) * Math.PI * 2 + Math.random() * 0.4;
-      const bit = this.add.rectangle(x, y, 8, 8, COLORS.target).setDepth(4);
+      const bit = this.add.rectangle(x, y, 8, 8, color).setDepth(4);
       this.tweens.add({
         targets: bit,
         x: x + Math.cos(angle) * BURST_DISTANCE,
