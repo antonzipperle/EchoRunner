@@ -1,7 +1,11 @@
 import Phaser from 'phaser';
 import {
   ARENA,
+  BURST_DISTANCE,
+  BURST_MS,
+  BURST_PARTICLES,
   COLORS,
+  GHOST_AGE_FADE_ROUNDS,
   GHOST_HITBOX_SCALE,
   GHOST_TRAIL_ALPHA,
   GHOST_TRAIL_WIDTH,
@@ -9,6 +13,7 @@ import {
   PLAYER_SPEED,
   ROUND_TIME_TICKS,
   SPAWN_GRACE_TICKS,
+  SPAWN_RING_RADIUS,
   TARGET_MIN_DIST_FROM_GHOST_END,
   TARGET_MIN_DIST_FROM_PLAYER,
   TARGET_SIZE,
@@ -22,6 +27,7 @@ import { sfx } from '../game/sound';
 type Ghost = {
   recording: Recording;
   rect: Phaser.GameObjects.Rectangle;
+  trail: Phaser.GameObjects.Graphics;
 };
 
 type WasdKeys = {
@@ -192,8 +198,11 @@ export class GameScene extends Phaser.Scene {
       .rectangle(start.x, start.y, PLAYER_SIZE, PLAYER_SIZE, COLORS.ghost)
       .setAlpha(0.15)
       .setDepth(2);
-    this.ghosts.push({ recording: this.current, rect });
-    this.drawTrail(this.current);
+    const trail = this.add.graphics().setDepth(1);
+    this.ghosts.push({ recording: this.current, rect, trail });
+    this.refreshGhostColors();
+    this.showSpawnRings();
+    this.burst(this.target.x, this.target.y); // target has not moved yet
 
     // All ghosts restart from tick 0 because tick is shared
     this.current = new Recording();
@@ -214,11 +223,63 @@ export class GameScene extends Phaser.Scene {
     this.spawnTarget();
   }
 
-  // Drawn once per recording, since a finished recording never changes
-  private drawTrail(recording: Recording) {
+  // Newest ghost is COLORS.ghost, older ones drift toward COLORS.ghostOld
+  private ghostColor(age: number): number {
+    const t = Math.min(age / GHOST_AGE_FADE_ROUNDS, 1) * 100;
+    const { ValueToColor, Interpolate, GetColor } = Phaser.Display.Color;
+    const c = Interpolate.ColorWithColor(ValueToColor(COLORS.ghost), ValueToColor(COLORS.ghostOld), 100, t);
+    return GetColor(c.r, c.g, c.b);
+  }
+
+  // Ghosts age every round, so recolor the rects and redraw the trails
+  private refreshGhostColors() {
+    const newest = this.ghosts.length - 1;
+    this.ghosts.forEach((g, i) => {
+      const color = this.ghostColor(newest - i);
+      g.rect.setFillStyle(color);
+      this.drawTrail(g.trail, g.recording, color);
+    });
+  }
+
+  // A ring closes in on each ghost's start point; ghosts become dangerous when it arrives
+  private showSpawnRings() {
+    const newest = this.ghosts.length - 1;
+    this.ghosts.forEach((g, i) => {
+      const start = g.recording.at(0);
+      const ring = this.add
+        .circle(start.x, start.y, SPAWN_RING_RADIUS)
+        .setStrokeStyle(2, this.ghostColor(newest - i), 0.8)
+        .setDepth(2);
+      this.tweens.add({
+        targets: ring,
+        scale: PLAYER_SIZE / 2 / SPAWN_RING_RADIUS,
+        duration: SPAWN_GRACE_TICKS * TICK_MS,
+        onComplete: () => ring.destroy(),
+      });
+    });
+  }
+
+  private burst(x: number, y: number) {
+    for (let i = 0; i < BURST_PARTICLES; i++) {
+      const angle = (i / BURST_PARTICLES) * Math.PI * 2 + Math.random() * 0.4;
+      const bit = this.add.rectangle(x, y, 8, 8, COLORS.target).setDepth(4);
+      this.tweens.add({
+        targets: bit,
+        x: x + Math.cos(angle) * BURST_DISTANCE,
+        y: y + Math.sin(angle) * BURST_DISTANCE,
+        alpha: 0,
+        angle: 180,
+        duration: BURST_MS,
+        onComplete: () => bit.destroy(),
+      });
+    }
+  }
+
+  // Redrawn each round when ghost colors change. A finished recording never changes.
+  private drawTrail(trail: Phaser.GameObjects.Graphics, recording: Recording, color: number) {
     const start = recording.at(0);
-    const trail = this.add.graphics().setDepth(1);
-    trail.lineStyle(GHOST_TRAIL_WIDTH, COLORS.ghost, GHOST_TRAIL_ALPHA);
+    trail.clear();
+    trail.lineStyle(GHOST_TRAIL_WIDTH, color, GHOST_TRAIL_ALPHA);
     trail.beginPath();
     trail.moveTo(start.x, start.y);
     for (let i = 1; i < recording.length; i++) {

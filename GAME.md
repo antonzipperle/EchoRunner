@@ -31,6 +31,8 @@ Single-screen arena game, Phaser 3 + TypeScript + Vite.
 7. [done] Ghost trails: each ghost's full recorded path is drawn as a faint line.
 8. [done] Sound effects: pickup blip and game-over drop, made with the Web Audio API (no files, no library).
 9. [done] Local top-10 leaderboard in localStorage, shown on the game-over screen.
+10. [done] Readability visuals (still rectangles and lines only): older ghosts fade from red toward violet,
+    a ring shrinks onto each ghost's start point during the grace period, and grabbing the target bursts into small squares.
 
 ## Where things live
 - `src/game/constants.ts`: all tuning knobs (speed, sizes, grace period, spawn distances).

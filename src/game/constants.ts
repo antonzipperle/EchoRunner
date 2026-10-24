@@ -22,6 +22,17 @@ export const GHOST_HITBOX_SCALE = 0.75;
 export const GHOST_TRAIL_ALPHA = 0.12;
 export const GHOST_TRAIL_WIDTH = 2;
 
+// Ghosts shift from COLORS.ghost (newest) to COLORS.ghostOld over this many rounds of age.
+export const GHOST_AGE_FADE_ROUNDS = 8;
+
+// A ring shrinks from this radius onto each ghost's start point during the grace period.
+export const SPAWN_RING_RADIUS = 70;
+
+// Burst of small squares when the target is grabbed.
+export const BURST_PARTICLES = 10;
+export const BURST_DISTANCE = 70;
+export const BURST_MS = 400;
+
 // Ticks at the start of each round where ghosts can't hurt you (30 = 0.5 s).
 export const SPAWN_GRACE_TICKS = 30;
 
@@ -50,6 +61,7 @@ export const COLORS = {
   target: 0xf6c344,
   warning: '#e05d6f', // timer text in the last seconds
   ghost: 0xe05d6f,
+  ghostOld: 0x8a6cf0,
   text: '#e8ecf4',
   textMuted: '#7d8799',
 };
