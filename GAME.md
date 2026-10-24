@@ -28,6 +28,8 @@ Single-screen arena game, Phaser 3 + TypeScript + Vite.
 4. [done] Replay all previous recordings as ghosts at the start of each round.
 5. [done] Collision with ghosts triggers game over, plus a restart button (or Space).
 6. [done] Per-round time limit. A countdown is shown; if it hits 0 before the target is grabbed, game over.
+7. [done] Ghost trails: each ghost's full recorded path is drawn as a faint line.
+Planned next, one at a time: 8. sound effects (Web Audio, no library), 9. local top-10 leaderboard (localStorage).
 
 ## Where things live
 - `src/game/constants.ts`: all tuning knobs (speed, sizes, grace period, spawn distances).

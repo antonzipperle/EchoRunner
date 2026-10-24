@@ -3,6 +3,8 @@ import {
   ARENA,
   COLORS,
   GHOST_HITBOX_SCALE,
+  GHOST_TRAIL_ALPHA,
+  GHOST_TRAIL_WIDTH,
   PLAYER_SIZE,
   PLAYER_SPEED,
   ROUND_TIME_TICKS,
@@ -189,6 +191,7 @@ export class GameScene extends Phaser.Scene {
       .setAlpha(0.15)
       .setDepth(2);
     this.ghosts.push({ recording: this.current, rect });
+    this.drawTrail(this.current);
 
     // All ghosts restart from tick 0 because tick is shared
     this.current = new Recording();
@@ -206,6 +209,20 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.spawnTarget();
+  }
+
+  // Drawn once per recording, since a finished recording never changes
+  private drawTrail(recording: Recording) {
+    const start = recording.at(0);
+    const trail = this.add.graphics().setDepth(1);
+    trail.lineStyle(GHOST_TRAIL_WIDTH, COLORS.ghost, GHOST_TRAIL_ALPHA);
+    trail.beginPath();
+    trail.moveTo(start.x, start.y);
+    for (let i = 1; i < recording.length; i++) {
+      const p = recording.at(i);
+      trail.lineTo(p.x, p.y);
+    }
+    trail.strokePath();
   }
 
   private spawnTarget() {

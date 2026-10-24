@@ -18,6 +18,10 @@ export const TARGET_SIZE = 28;
 // Ghost hitbox relative to the player size. Below 1 = more forgiving.
 export const GHOST_HITBOX_SCALE = 0.75;
 
+// Faint line showing each ghost's whole path, so you can read where it will go.
+export const GHOST_TRAIL_ALPHA = 0.12;
+export const GHOST_TRAIL_WIDTH = 2;
+
 // Ticks at the start of each round where ghosts can't hurt you (30 = 0.5 s).
 export const SPAWN_GRACE_TICKS = 30;
 
