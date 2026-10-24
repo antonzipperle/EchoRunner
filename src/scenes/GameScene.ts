@@ -14,6 +14,8 @@ import {
   GHOST_TRAIL_WIDTH,
   GRID_ALPHA,
   GRID_SIZE,
+  JOYSTICK_RADIUS,
+  NEAR_MISS_DIST,
   PICKUP_FLASH_ALPHA,
   PICKUP_BLINK_TICKS,
   PICKUP_CHANCE,
@@ -53,6 +55,7 @@ type Ghost = {
   recording: Recording;
   rect: Phaser.GameObjects.Rectangle;
   trail: Phaser.GameObjects.Graphics;
+  near: boolean; // lit up because it is close to the player
 };
 
 type PickupKind = 'time' | 'eraser';
@@ -90,6 +93,7 @@ export class GameScene extends Phaser.Scene {
   private lastDir = new Phaser.Math.Vector2(1, 0); // so boosting while standing still still dashes
   private boostButton!: Phaser.GameObjects.Text;
   private boostBar!: Phaser.GameObjects.Graphics;
+  private joystick!: Phaser.GameObjects.Graphics;
 
   private recordings: Recording[] = [];
   private current = new Recording();
@@ -165,7 +169,8 @@ export class GameScene extends Phaser.Scene {
     this.updateTimer();
 
     this.hintText = this.add
-      .text(width / 2, height - margin - 30, 'Grab the yellow square. Avoid your past.', {
+      .text(width / 2, height - margin - 45, 'Grab the yellow square. Avoid your past.\nShift or BOOST = dash', {
+        align: 'center',
         fontFamily: 'monospace',
         fontSize: '20px',
         color: COLORS.textMuted,
@@ -217,7 +222,16 @@ export class GameScene extends Phaser.Scene {
     for (const ghost of this.ghosts) {
       const p = ghost.recording.at(this.tick);
       ghost.rect.setPosition(p.x, p.y);
-      ghost.rect.setAlpha(graceOver ? 0.45 : 0.15);
+
+      // Near-miss warning: a bright outline on any ghost close to the player
+      const near =
+        graceOver && Phaser.Math.Distance.Between(p.x, p.y, this.player.x, this.player.y) < NEAR_MISS_DIST;
+      if (near !== ghost.near) {
+        ghost.near = near;
+        if (near) ghost.rect.setStrokeStyle(2, 0xffffff, 0.9);
+        else ghost.rect.setStrokeStyle();
+      }
+      ghost.rect.setAlpha(near ? 0.9 : graceOver ? 0.45 : 0.15);
     }
 
     const caughtBy = graceOver ? this.ghostTouchingPlayer() : undefined;
@@ -349,7 +363,7 @@ export class GameScene extends Phaser.Scene {
       .setAlpha(0.15)
       .setDepth(2);
     const trail = this.add.graphics().setDepth(1);
-    this.ghosts.push({ recording: this.current, rect, trail });
+    this.ghosts.push({ recording: this.current, rect, trail, near: false });
     this.refreshGhostColors();
     this.showSpawnRings();
     this.burst(this.target.x, this.target.y); // target has not moved yet
@@ -632,6 +646,7 @@ export class GameScene extends Phaser.Scene {
     const keyboard = this.input.keyboard!;
     this.cursors = keyboard.createCursorKeys();
     this.wasd = keyboard.addKeys('W,A,S,D') as WasdKeys;
+    this.joystick = this.add.graphics().setDepth(4);
 
     keyboard.on('keydown-P', () => this.togglePause());
     keyboard.on('keydown-ESC', () => this.togglePause());
@@ -645,12 +660,14 @@ export class GameScene extends Phaser.Scene {
       if (over.length > 0 || this.touchStart) return; // buttons must not start a drag
       this.touchStart = new Phaser.Math.Vector2(p.x, p.y);
       this.touchPointerId = p.id;
+      this.drawJoystick(0, 0, 0);
     });
     this.input.on('pointermove', (p: Phaser.Input.Pointer) => {
       if (!this.touchStart || p.id !== this.touchPointerId || !p.isDown) return;
       const dx = p.x - this.touchStart.x;
       const dy = p.y - this.touchStart.y;
       const len = Math.hypot(dx, dy);
+      this.drawJoystick(dx, dy, len);
       if (len < TOUCH_DEADZONE) this.touchDir.set(0, 0);
       else this.touchDir.set(dx / len, dy / len);
     });
@@ -659,7 +676,18 @@ export class GameScene extends Phaser.Scene {
       this.touchStart = null;
       this.touchPointerId = null;
       this.touchDir.set(0, 0);
+      this.joystick.clear();
     });
+  }
+
+  // Ring where the drag started, with a knob that follows the finger (clamped to the ring)
+  private drawJoystick(dx: number, dy: number, len: number) {
+    if (!this.touchStart) return;
+    const { x, y } = this.touchStart;
+    const k = len > JOYSTICK_RADIUS ? JOYSTICK_RADIUS / len : 1;
+    this.joystick.clear();
+    this.joystick.lineStyle(2, 0xffffff, 0.25).strokeCircle(x, y, JOYSTICK_RADIUS);
+    this.joystick.fillStyle(0xffffff, 0.35).fillCircle(x + dx * k, y + dy * k, 20);
   }
 
   // ---------- Pause and mute ----------

@@ -90,6 +90,12 @@ export const TARGET_MIN_DIST_FROM_PLAYER = 250;
 // ...and at least this far from where any ghost will park when its recording ends.
 export const TARGET_MIN_DIST_FROM_GHOST_END = 80;
 
+// A ghost closer than this to the player (after the grace period) lights up as a warning.
+export const NEAR_MISS_DIST = 70;
+
+// Radius of the on-screen joystick ring drawn while dragging.
+export const JOYSTICK_RADIUS = 56;
+
 // Touch controls: drag at least this many pixels from where the finger went down to move.
 export const TOUCH_DEADZONE = 12;
 

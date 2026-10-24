@@ -46,6 +46,13 @@ Single-screen arena game, Phaser 3 + TypeScript + Vite.
     (floor 3 s) so +TIME matters.
 15. [done] Boost: Shift (or the on-screen BOOST button) gives 0.25 s of 3x speed, then a 2.5 s cooldown that keeps
     running across rounds. A small bar under the button shows the recharge. Boosted moves are recorded, so ghosts dash too.
+16. [done] Clarity polish: the start hint mentions boost, ghosts within 70 px of you light up as a near-miss warning,
+    and dragging on touch (or with the mouse) shows an on-screen joystick.
+
+## Later (ideas parked, not started)
+- More pickups: freeze (ghosts hold still for 1.5 s) and a rare shield that absorbs one hit.
+- Replay of the final round in slow motion on the game-over screen.
+- Daily seed (same targets for everyone) and a copy-to-clipboard score card.
 
 ## Where things live
 - `src/game/constants.ts`: all tuning knobs (speed, sizes, grace period, spawn distances).
