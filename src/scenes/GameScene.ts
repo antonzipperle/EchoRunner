@@ -9,16 +9,23 @@ import {
   GHOST_HITBOX_SCALE,
   GHOST_TRAIL_ALPHA,
   GHOST_TRAIL_WIDTH,
+  GRID_ALPHA,
+  GRID_SIZE,
+  PICKUP_FLASH_ALPHA,
+  PICKUP_FLASH_MS,
   PLAYER_SIZE,
   PLAYER_SPEED,
   ROUND_TIME_TICKS,
+  SCORE_POP_SCALE,
   SPAWN_GRACE_TICKS,
   SPAWN_RING_RADIUS,
   TARGET_MIN_DIST_FROM_GHOST_END,
   TARGET_MIN_DIST_FROM_PLAYER,
   TARGET_SIZE,
   TICK_MS,
+  TIMER_WARNING_SECONDS,
   TOUCH_DEADZONE,
+  WALL_SHIFT_ROUNDS,
 } from '../game/constants';
 import { Recording } from '../game/Recording';
 import { submitScore, type ScoreEntry } from '../game/leaderboard';
@@ -38,6 +45,7 @@ type WasdKeys = {
 };
 
 export class GameScene extends Phaser.Scene {
+  private wall!: Phaser.GameObjects.Rectangle;
   private player!: Phaser.GameObjects.Rectangle;
   private target!: Phaser.GameObjects.Rectangle;
   private scoreText!: Phaser.GameObjects.Text;
@@ -76,8 +84,10 @@ export class GameScene extends Phaser.Scene {
 
     const { width, height, margin } = ARENA;
 
+    this.drawGrid();
+
     // Arena wall
-    this.add
+    this.wall = this.add
       .rectangle(width / 2, height / 2, width - margin * 2, height - margin * 2)
       .setStrokeStyle(2, COLORS.wall);
 
@@ -150,8 +160,9 @@ export class GameScene extends Phaser.Scene {
       ghost.rect.setAlpha(graceOver ? 0.45 : 0.15);
     }
 
-    if (graceOver && this.touchesGhost()) {
-      this.gameOver();
+    const caughtBy = graceOver ? this.ghostTouchingPlayer() : undefined;
+    if (caughtBy) {
+      this.gameOver(undefined, caughtBy);
       return;
     }
 
@@ -168,8 +179,33 @@ export class GameScene extends Phaser.Scene {
 
   private updateTimer() {
     const remaining = Math.max(0, ROUND_TIME_TICKS - this.tick) * (TICK_MS / 1000);
+    const warning = remaining <= TIMER_WARNING_SECONDS;
     this.timerText.setText(remaining.toFixed(1));
-    this.timerText.setColor(remaining <= 3 ? COLORS.warning : COLORS.text);
+    this.timerText.setColor(warning ? COLORS.warning : COLORS.text);
+    this.updateWall(warning);
+  }
+
+  // Wall color follows the score; in the last seconds of a round it pulses red instead
+  private updateWall(warning: boolean) {
+    if (warning) {
+      const pulse = 0.5 + 0.5 * Math.sin(this.tick * 0.35);
+      this.wall.setStrokeStyle(2, COLORS.playerDead, 0.4 + 0.6 * pulse);
+      return;
+    }
+    const t = Math.min(this.score / WALL_SHIFT_ROUNDS, 1);
+    this.wall.setStrokeStyle(2, this.mixColor(COLORS.wall, COLORS.wallHot, t));
+  }
+
+  private drawGrid() {
+    const { width, height, margin } = ARENA;
+    const grid = this.add.graphics().setDepth(-1);
+    grid.lineStyle(1, COLORS.wall, GRID_ALPHA);
+    for (let x = margin + GRID_SIZE; x < width - margin; x += GRID_SIZE) {
+      grid.lineBetween(x, margin, x, height - margin);
+    }
+    for (let y = margin + GRID_SIZE; y < height - margin; y += GRID_SIZE) {
+      grid.lineBetween(margin, y, width - margin, y);
+    }
   }
 
   private movePlayer() {
@@ -207,11 +243,12 @@ export class GameScene extends Phaser.Scene {
     // All ghosts restart from tick 0 because tick is shared
     this.current = new Recording();
     this.tick = 0;
-    this.updateTimer();
     this.score++;
+    this.updateTimer(); // after the score changes, so the wall color picks it up
     this.scoreText.setText(String(this.score));
+    this.popScore();
 
-    this.cameras.main.flash(80, 246, 195, 68, false);
+    this.flash();
     sfx.pickup();
 
     if (this.hintText) {
@@ -223,12 +260,31 @@ export class GameScene extends Phaser.Scene {
     this.spawnTarget();
   }
 
+  private popScore() {
+    this.tweens.killTweensOf(this.scoreText);
+    this.scoreText.setScale(SCORE_POP_SCALE);
+    this.tweens.add({ targets: this.scoreText, scale: 1, duration: 200, ease: 'Back.easeOut' });
+  }
+
+  // A soft wash instead of a camera flash, so the spawn rings stay visible
+  private flash() {
+    const { width, height } = ARENA;
+    const wash = this.add
+      .rectangle(width / 2, height / 2, width, height, COLORS.target, PICKUP_FLASH_ALPHA)
+      .setDepth(6);
+    this.tweens.add({ targets: wash, alpha: 0, duration: PICKUP_FLASH_MS, onComplete: () => wash.destroy() });
+  }
+
+  // t from 0 (all `from`) to 1 (all `to`)
+  private mixColor(from: number, to: number, t: number): number {
+    const { ValueToColor, Interpolate, GetColor } = Phaser.Display.Color;
+    const c = Interpolate.ColorWithColor(ValueToColor(from), ValueToColor(to), 100, t * 100);
+    return GetColor(c.r, c.g, c.b);
+  }
+
   // Newest ghost is COLORS.ghost, older ones drift toward COLORS.ghostOld
   private ghostColor(age: number): number {
-    const t = Math.min(age / GHOST_AGE_FADE_ROUNDS, 1) * 100;
-    const { ValueToColor, Interpolate, GetColor } = Phaser.Display.Color;
-    const c = Interpolate.ColorWithColor(ValueToColor(COLORS.ghost), ValueToColor(COLORS.ghostOld), 100, t);
-    return GetColor(c.r, c.g, c.b);
+    return this.mixColor(COLORS.ghost, COLORS.ghostOld, Math.min(age / GHOST_AGE_FADE_ROUNDS, 1));
   }
 
   // Ghosts age every round, so recolor the rects and redraw the trails
@@ -315,9 +371,9 @@ export class GameScene extends Phaser.Scene {
 
   // ---------- Collision ----------
 
-  private touchesGhost(): boolean {
+  private ghostTouchingPlayer(): Ghost | undefined {
     const reach = PLAYER_SIZE * GHOST_HITBOX_SCALE;
-    return this.ghosts.some((g) => this.overlaps(this.player, g.rect, reach));
+    return this.ghosts.find((g) => this.overlaps(this.player, g.rect, reach));
   }
 
   // Axis-aligned box check: centers closer than `reach` on both axes
@@ -370,7 +426,7 @@ export class GameScene extends Phaser.Scene {
 
   // ---------- Game over ----------
 
-  private gameOver(title = 'CAUGHT BY YOUR PAST') {
+  private gameOver(title = 'CAUGHT BY YOUR PAST', culprit?: Ghost) {
     this.isGameOver = true;
     this.player.setFillStyle(COLORS.playerDead);
     this.cameras.main.shake(200, 0.01);
@@ -379,6 +435,17 @@ export class GameScene extends Phaser.Scene {
     const { width, height } = ARENA;
     this.add.rectangle(width / 2, height / 2, width, height, COLORS.background, 0.75).setDepth(10);
 
+    // Pull the killer and the player above the dimming overlay and ring the killer
+    if (culprit) {
+      culprit.rect.setDepth(12).setAlpha(1);
+      this.player.setDepth(12);
+      const ring = this.add
+        .circle(culprit.rect.x, culprit.rect.y, 34)
+        .setStrokeStyle(3, COLORS.playerDead)
+        .setDepth(12);
+      this.tweens.add({ targets: ring, scale: 1.4, alpha: 0.2, duration: 500, yoyo: true, repeat: -1 });
+    }
+
     this.add
       .text(width / 2, 90, title, {
         fontFamily: 'monospace',
@@ -386,7 +453,7 @@ export class GameScene extends Phaser.Scene {
         color: COLORS.text,
       })
       .setOrigin(0.5)
-      .setDepth(11);
+      .setDepth(13);
 
     this.add
       .text(width / 2, 145, `Rounds survived: ${this.score}`, {
@@ -395,13 +462,13 @@ export class GameScene extends Phaser.Scene {
         color: COLORS.textMuted,
       })
       .setOrigin(0.5)
-      .setDepth(11);
+      .setDepth(13);
 
     this.showLeaderboard(submitScore(this.score));
 
     const button = this.add
       .rectangle(width / 2, 540, 240, 64, COLORS.player)
-      .setDepth(11)
+      .setDepth(13)
       .setInteractive({ useHandCursor: true });
     this.add
       .text(width / 2, 540, 'RESTART', {
@@ -410,7 +477,7 @@ export class GameScene extends Phaser.Scene {
         color: '#0d0f14',
       })
       .setOrigin(0.5)
-      .setDepth(12);
+      .setDepth(14);
 
     button.on('pointerover', () => button.setAlpha(0.85));
     button.on('pointerout', () => button.setAlpha(1));
@@ -423,7 +490,7 @@ export class GameScene extends Phaser.Scene {
         color: COLORS.textMuted,
       })
       .setOrigin(0.5)
-      .setDepth(11);
+      .setDepth(13);
 
     this.input.keyboard!.once('keydown-SPACE', () => this.scene.restart());
   }
@@ -441,7 +508,7 @@ export class GameScene extends Phaser.Scene {
           color: COLORS.textMuted,
         })
         .setOrigin(0.5)
-        .setDepth(11);
+        .setDepth(13);
       return;
     }
 
@@ -457,7 +524,7 @@ export class GameScene extends Phaser.Scene {
           color: isThisRun ? '#4fd1c5' : COLORS.textMuted,
         })
         .setOrigin(0.5, 0)
-        .setDepth(11);
+        .setDepth(13);
     });
   }
 }

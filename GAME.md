@@ -34,6 +34,10 @@ Single-screen arena game, Phaser 3 + TypeScript + Vite.
 10. [done] Readability visuals (still rectangles and lines only): older ghosts fade from red toward violet,
     a ring shrinks onto each ghost's start point during the grace period, and grabbing the target bursts into small squares.
 
+11. [done] Visual polish (still rectangles and lines only): brighter ghost trails, a soft pickup flash instead of a hard one,
+    a faint background grid, an arena wall that shifts color with the score, a score pop, a red timer and wall pulse
+    in the last 1.5 s, and a pulsing ring around the ghost that caught you.
+
 ## Where things live
 - `src/game/constants.ts`: all tuning knobs (speed, sizes, grace period, spawn distances).
 - `src/game/Recording.ts`: one round of positions, one per tick.
