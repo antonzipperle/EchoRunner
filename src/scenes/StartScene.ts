@@ -12,8 +12,8 @@ import {
 } from '../game/constants';
 import { applyHiResCamera } from '../game/hiRes';
 import { loadScores } from '../game/leaderboard';
-import { isMuted, sfx, toggleMuted } from '../game/sound';
-import { drawGrid, mixColor } from '../game/visuals';
+import { isMuted, music, sfx, toggleMuted } from '../game/sound';
+import { addGlow, drawBackdrop, drawGrid, mixColor } from '../game/visuals';
 
 const TITLE = 'ECHO RUNNER';
 const TITLE_SIZE = 104;
@@ -50,7 +50,9 @@ export class StartScene extends Phaser.Scene {
   private soundButton!: Phaser.GameObjects.Text;
 
   private runner!: Phaser.GameObjects.Rectangle;
+  private runnerGlow!: Phaser.GameObjects.Image;
   private target!: Phaser.GameObjects.Rectangle;
+  private targetRing!: Phaser.GameObjects.Rectangle;
   private ghosts: Phaser.GameObjects.Rectangle[] = [];
 
   constructor() {
@@ -69,6 +71,7 @@ export class StartScene extends Phaser.Scene {
 
     applyHiResCamera(this);
     this.cameras.main.fadeIn(300, 13, 15, 20); // matches the background color
+    drawBackdrop(this);
     drawGrid(this);
 
     this.createDemo();
@@ -98,17 +101,27 @@ export class StartScene extends Phaser.Scene {
 
     // The yellow target sits at the far right of the figure-eight, like the one in the game
     const end = pathPos(Math.PI / 2);
+    addGlow(this, end.x, end.y, COLORS.target, 56).setDepth(0.5);
+    this.targetRing = this.add
+      .rectangle(end.x, end.y, TARGET_SIZE + 16, TARGET_SIZE + 16)
+      .setStrokeStyle(2, COLORS.target, 0.6)
+      .setDepth(1);
     this.target = this.add.rectangle(end.x, end.y, TARGET_SIZE, TARGET_SIZE, COLORS.target).setDepth(1);
 
-    // Oldest ghost is violet, newest is red, same as in the game
+    // Oldest ghost is violet, newest is red, styled like the game's ghosts
     for (let i = 0; i < START_GHOST_COUNT; i++) {
       const age = 1 - i / Math.max(START_GHOST_COUNT - 1, 1);
       const color = mixColor(COLORS.ghost, COLORS.ghostOld, age);
       this.ghosts.push(
-        this.add.rectangle(0, 0, PLAYER_SIZE, PLAYER_SIZE, color).setDepth(2).setAlpha(0),
+        this.add
+          .rectangle(0, 0, PLAYER_SIZE, PLAYER_SIZE, color, 0.45)
+          .setStrokeStyle(1.5, color, 1)
+          .setDepth(2)
+          .setAlpha(0),
       );
     }
 
+    this.runnerGlow = addGlow(this, 0, 0, COLORS.player, 44).setDepth(2.5);
     this.runner = this.add.rectangle(0, 0, PLAYER_SIZE, PLAYER_SIZE, COLORS.player).setDepth(3);
   }
 
@@ -188,7 +201,9 @@ export class StartScene extends Phaser.Scene {
   private start() {
     if (this.started) return;
     this.started = true;
-    sfx.powerup(); // also unlocks audio, since this runs inside a key press or tap
+    // Inside a key press or tap, so this also unlocks audio for the browser
+    sfx.start();
+    music.start();
 
     const cam = this.cameras.main;
     cam.fadeOut(250, 13, 15, 20);
@@ -233,6 +248,7 @@ export class StartScene extends Phaser.Scene {
     const lap = (this.elapsed / START_LAP_MS) * Math.PI * 2;
     const runnerPos = pathPos(lap);
     this.runner.setPosition(runnerPos.x, runnerPos.y);
+    this.runnerGlow.setPosition(runnerPos.x, runnerPos.y);
 
     // Fading afterimages behind the runner
     this.afterimageTimer += delta;
@@ -246,6 +262,7 @@ export class StartScene extends Phaser.Scene {
 
     this.target.setAngle(this.elapsed / 8);
     this.target.setScale(1 + 0.1 * Math.sin(this.elapsed / 300));
+    this.targetRing.setAngle(-this.elapsed / 11);
 
     // Ghosts are the runner's earlier laps, appearing one at a time and then vanishing together
     const cycle = START_GHOST_REVEAL_MS * (START_GHOST_COUNT + 1) + GHOST_HOLD_MS;
@@ -255,7 +272,7 @@ export class StartScene extends Phaser.Scene {
       const p = pathPos(lap - (i + 1) * START_GHOST_LAG);
       ghost.setPosition(p.x, p.y);
 
-      let alpha = Phaser.Math.Clamp((phase - revealAt) / 300, 0, 1) * 0.6;
+      let alpha = Phaser.Math.Clamp((phase - revealAt) / 300, 0, 1) * 0.85;
       if (phase > cycle - GHOST_FADE_OUT_MS) alpha *= (cycle - phase) / GHOST_FADE_OUT_MS;
       ghost.setAlpha(alpha);
 

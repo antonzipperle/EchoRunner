@@ -17,7 +17,7 @@ Single-screen arena game, Phaser 3 + TypeScript + Vite.
 ## Rules for the code
 - Keep game logic separate from rendering where possible.
 - Record positions per fixed timestep, not per render frame.
-- No art yet: colored rectangles only.
+- No art files: everything is drawn in code from shapes, lines and generated gradients (see `src/game/visuals.ts`).
 - 16:9 canvas (1280x720) that scales to fit desktop and mobile. Already set up in src/main.ts.
 - Do one milestone at a time. Do not add features that are not in this file.
 
@@ -53,6 +53,16 @@ Single-screen arena game, Phaser 3 + TypeScript + Vite.
 18. [done] Animated start screen: the title drops in letter by letter with a red "echo" trailing it, and a looping demo
     shows the idea (a runner on a figure-eight, its earlier laps appearing behind it as ghosts). Space, Enter or a tap starts
     the game; M toggles sound; your best score shows if you have one.
+19. [done] Visual overhaul, kept simple: soft backdrop light and wall glow, glows on the player, target and pickups,
+    see-through outlined ghosts, a target gem in a counter-rotating frame that pops in, a light player trail, bold HUD numbers.
+    Pickups are distinct icons: +TIME is a green clock with a sweeping hand, ERASE is a white spinning diamond with an X
+    that sends out shockwave rings. Both pop in.
+20. [done] Audio and feel: softer game-over shake, a rising start jingle (from the menu and on restart), a falling
+    game-over phrase, and faint generated background music (Am F C G arpeggio over a soft bass) that mutes with M
+    and pauses with the game. All Web Audio, no files.
+21. [done] Reactive feel, kept subtle: a near ghost pops when it lights up and its outline brightens as it closes in,
+    the player's glow swells with the danger, slipping past within 36 px gives a close-call ring and chime, the player
+    stretches as it moves and pops on a grab, shockwave rings on collects and boosts, and the timer beats in the last 1.5 s.
 
 ## Later (ideas parked, not started)
 - More pickups: freeze (ghosts hold still for 1.5 s) and a rare shield that absorbs one hit.
@@ -62,7 +72,7 @@ Single-screen arena game, Phaser 3 + TypeScript + Vite.
 ## Where things live
 - `src/game/constants.ts`: all tuning knobs (speed, sizes, grace period, spawn distances).
 - `src/game/Recording.ts`: one round of positions, one per tick.
-- `src/game/sound.ts`: Web Audio sound effects (`sfx.pickup()`, `sfx.gameOver()`) and the mute switch.
+- `src/game/sound.ts`: Web Audio sound effects (`sfx.*`), the background music loop (`music.start()/stop()`) and the mute switch.
 - `src/game/leaderboard.ts`: local top-10 scores in localStorage.
 - `src/game/hiRes.ts`: sharp rendering (2x canvas, camera zoom, 2x text). Every scene calls `applyHiResCamera(this)`.
 - `src/game/visuals.ts`: shared drawing helpers (arena grid, color mixing).

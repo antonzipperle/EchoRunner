@@ -7,6 +7,7 @@ import {
   BURST_DISTANCE,
   BURST_MS,
   BURST_PARTICLES,
+  CLOSE_CALL_DIST,
   COLORS,
   GHOST_AGE_FADE_ROUNDS,
   GHOST_HITBOX_SCALE,
@@ -29,12 +30,16 @@ import {
   PICKUP_PATH_T_MIN,
   PICKUP_RADIUS,
   PICKUP_TIME_BONUS_TICKS,
+  PLAYER_POP_SCALE,
   PLAYER_SIZE,
   PLAYER_SPEED,
+  PLAYER_STRETCH,
   ROUND_TIME_MIN_TICKS,
   ROUND_TIME_SHRINK_TICKS,
   ROUND_TIME_TICKS,
   SCORE_POP_SCALE,
+  SHAKE_INTENSITY,
+  SHAKE_MS,
   SPAWN_GRACE_TICKS,
   SPAWN_RING_RADIUS,
   TARGET_MIN_DIST_FROM_GHOST_END,
@@ -46,24 +51,26 @@ import {
   WALL_SHIFT_ROUNDS,
 } from '../game/constants';
 import { applyHiResCamera } from '../game/hiRes';
-import { drawGrid, mixColor } from '../game/visuals';
+import { addGlow, cssColor, drawBackdrop, drawGrid, mixColor, setGlowColor } from '../game/visuals';
 import { Recording } from '../game/Recording';
 import { submitScore, type ScoreEntry } from '../game/leaderboard';
-import { isMuted, sfx, toggleMuted } from '../game/sound';
+import { isMuted, music, sfx, toggleMuted } from '../game/sound';
 
 type Ghost = {
   recording: Recording;
   rect: Phaser.GameObjects.Rectangle;
   trail: Phaser.GameObjects.Graphics;
   near: boolean; // lit up because it is close to the player
+  closest: number; // nearest it got to the player while lit up, for close calls
 };
 
 type PickupKind = 'time' | 'eraser';
 
 type Pickup = {
   kind: PickupKind;
-  disc: Phaser.GameObjects.Arc;
-  label: Phaser.GameObjects.Text;
+  x: number;
+  y: number;
+  body: Phaser.GameObjects.Container; // everything drawn for this pickup, so it blinks and goes as one
   ticksLeft: number;
 };
 
@@ -76,8 +83,14 @@ type WasdKeys = {
 
 export class GameScene extends Phaser.Scene {
   private wall!: Phaser.GameObjects.Rectangle;
+  private wallGlow!: Phaser.GameObjects.Rectangle;
   private player!: Phaser.GameObjects.Rectangle;
+  private playerGlow!: Phaser.GameObjects.Image;
+  private glowBaseScale = 1; // the player glow's resting scale
+  private playerPop = 1; // extra scale after a grab, easing back to 1
   private target!: Phaser.GameObjects.Rectangle;
+  private targetRing!: Phaser.GameObjects.Rectangle;
+  private targetGlow!: Phaser.GameObjects.Image;
   private scoreText!: Phaser.GameObjects.Text;
   private timerText!: Phaser.GameObjects.Text;
   private hintText?: Phaser.GameObjects.Text;
@@ -136,19 +149,33 @@ export class GameScene extends Phaser.Scene {
 
     applyHiResCamera(this);
     if (data?.fromMenu) this.cameras.main.fadeIn(250, 13, 15, 20); // matches the background color
+    music.start(); // keeps playing across restarts; does nothing if already running
 
     const { width, height, margin } = ARENA;
 
+    drawBackdrop(this);
     drawGrid(this);
 
-    // Arena wall
-    this.wall = this.add
-      .rectangle(width / 2, height / 2, width - margin * 2, height - margin * 2)
-      .setStrokeStyle(2, COLORS.wall);
+    // Arena wall, with a wide faint copy behind it as a glow
+    const arenaW = width - margin * 2;
+    const arenaH = height - margin * 2;
+    this.wallGlow = this.add.rectangle(width / 2, height / 2, arenaW, arenaH).setStrokeStyle(10, COLORS.wall, 0.12);
+    this.wall = this.add.rectangle(width / 2, height / 2, arenaW, arenaH).setStrokeStyle(2, COLORS.wall);
 
+    // Target: a spinning gem inside a frame that turns the other way, over a soft glow
+    this.targetGlow = addGlow(this, 0, 0, COLORS.target, 56).setDepth(0.5);
+    this.tweens.add({ targets: this.targetGlow, alpha: 0.6, duration: 700, yoyo: true, repeat: -1 });
+    this.targetRing = this.add
+      .rectangle(0, 0, TARGET_SIZE + 16, TARGET_SIZE + 16)
+      .setStrokeStyle(2, COLORS.target, 0.6)
+      .setDepth(1);
+    this.tweens.add({ targets: this.targetRing, angle: -360, duration: 4000, repeat: -1 });
     this.target = this.add.rectangle(0, 0, TARGET_SIZE, TARGET_SIZE, COLORS.target).setDepth(1);
     this.tweens.add({ targets: this.target, angle: 360, duration: 3000, repeat: -1 });
 
+    this.playerGlow = addGlow(this, width / 2, height / 2, COLORS.player, 44).setDepth(2.5);
+    this.glowBaseScale = this.playerGlow.scaleX;
+    this.playerPop = 1;
     this.player = this.add
       .rectangle(width / 2, height / 2, PLAYER_SIZE, PLAYER_SIZE, COLORS.player)
       .setDepth(3);
@@ -157,6 +184,7 @@ export class GameScene extends Phaser.Scene {
       .text(margin + 12, margin + 10, '0', {
         fontFamily: 'monospace',
         fontSize: '32px',
+        fontStyle: 'bold',
         color: COLORS.text,
       })
       .setDepth(5);
@@ -165,6 +193,7 @@ export class GameScene extends Phaser.Scene {
       .text(width - margin - 12, margin + 10, '', {
         fontFamily: 'monospace',
         fontSize: '32px',
+        fontStyle: 'bold',
         color: COLORS.text,
       })
       .setOrigin(1, 0)
@@ -217,31 +246,54 @@ export class GameScene extends Phaser.Scene {
   // ---------- Simulation (one fixed tick) ----------
 
   private step() {
+    const prevX = this.player.x;
+    const prevY = this.player.y;
     this.movePlayer();
+    this.playerGlow.setPosition(this.player.x, this.player.y);
+
+    // Light motion trail; boosting draws its own, denser one
+    const moved = this.player.x !== prevX || this.player.y !== prevY;
+    if (moved && this.boostTicksLeft === 0 && this.tick % 3 === 0) this.afterimage(0.2);
+
     this.tickBoost();
     this.current.push(this.player.x, this.player.y);
 
     const graceOver = this.tick >= SPAWN_GRACE_TICKS;
+    let danger = 0; // 0 = no ghost near, 1 = a ghost right on top of the player
+    const slippedPast: Ghost[] = [];
     for (const ghost of this.ghosts) {
       const p = ghost.recording.at(this.tick);
       ghost.rect.setPosition(p.x, p.y);
 
-      // Near-miss warning: a bright outline on any ghost close to the player
-      const near =
-        graceOver && Phaser.Math.Distance.Between(p.x, p.y, this.player.x, this.player.y) < NEAR_MISS_DIST;
+      // Near-miss warning: the outline brightens the closer the ghost gets
+      const d = Phaser.Math.Distance.Between(p.x, p.y, this.player.x, this.player.y);
+      const near = graceOver && d < NEAR_MISS_DIST;
       if (near !== ghost.near) {
         ghost.near = near;
-        if (near) ghost.rect.setStrokeStyle(2, 0xffffff, 0.9);
-        else ghost.rect.setStrokeStyle();
+        if (near) {
+          ghost.closest = d;
+          this.tweens.add({ targets: ghost.rect, scale: { from: 1.3, to: 1 }, duration: 180, ease: 'Back.easeOut' });
+        } else {
+          ghost.rect.setStrokeStyle(1.5, ghost.rect.fillColor, 1);
+          if (ghost.closest < CLOSE_CALL_DIST) slippedPast.push(ghost);
+        }
       }
-      ghost.rect.setAlpha(near ? 0.9 : graceOver ? 0.45 : 0.15);
+      if (near) {
+        ghost.closest = Math.min(ghost.closest, d);
+        const closeness = 1 - d / NEAR_MISS_DIST;
+        ghost.rect.setStrokeStyle(2, 0xffffff, 0.4 + 0.6 * closeness);
+        danger = Math.max(danger, closeness);
+      }
+      ghost.rect.setAlpha(near ? 1 : graceOver ? 0.8 : 0.25);
     }
+    this.updatePlayerFeel(prevX, prevY, danger);
 
     const caughtBy = graceOver ? this.ghostTouchingPlayer() : undefined;
     if (caughtBy) {
       this.gameOver(undefined, caughtBy);
       return;
     }
+    if (slippedPast.length > 0) this.closeCall();
 
     if (this.overlaps(this.player, this.target, (PLAYER_SIZE + TARGET_SIZE) / 2)) {
       this.nextRound();
@@ -267,6 +319,7 @@ export class GameScene extends Phaser.Scene {
     const warning = remaining <= TIMER_WARNING_SECONDS;
     this.timerText.setText(remaining.toFixed(1));
     this.timerText.setColor(warning ? COLORS.warning : COLORS.text);
+    this.timerText.setScale(warning ? 1 + 0.08 * (0.5 + 0.5 * Math.sin(this.tick * 0.35)) : 1); // beats with the wall
     this.updateWall(warning);
   }
 
@@ -275,10 +328,13 @@ export class GameScene extends Phaser.Scene {
     if (warning) {
       const pulse = 0.5 + 0.5 * Math.sin(this.tick * 0.35);
       this.wall.setStrokeStyle(2, COLORS.playerDead, 0.4 + 0.6 * pulse);
+      this.wallGlow.setStrokeStyle(10, COLORS.playerDead, 0.25 * pulse);
       return;
     }
     const t = Math.min(this.score / WALL_SHIFT_ROUNDS, 1);
-    this.wall.setStrokeStyle(2, mixColor(COLORS.wall, COLORS.wallHot, t));
+    const color = mixColor(COLORS.wall, COLORS.wallHot, t);
+    this.wall.setStrokeStyle(2, color);
+    this.wallGlow.setStrokeStyle(10, color, 0.12);
   }
 
   private movePlayer() {
@@ -312,22 +368,72 @@ export class GameScene extends Phaser.Scene {
     this.boostTicksLeft = BOOST_TICKS;
     this.boostCooldown = BOOST_COOLDOWN_TICKS;
     sfx.boost();
+    this.shockwave(this.player.x, this.player.y, COLORS.player, 40);
     this.updateBoostUi();
   }
 
   // Once per tick, after the player has moved
   private tickBoost() {
     if (this.boostTicksLeft > 0) {
-      this.afterimage();
+      this.afterimage(0.5);
       this.boostTicksLeft--;
     }
     if (this.boostCooldown > 0) this.boostCooldown--;
     this.updateBoostUi();
   }
 
-  private afterimage() {
+  // ---------- Game feel ----------
+
+  // Once per tick: stretch along the direction of travel, ease back from a pop,
+  // and swell the glow while a ghost is close (danger 0..1)
+  private updatePlayerFeel(prevX: number, prevY: number, danger: number) {
+    const lerp = Phaser.Math.Linear;
+    const dx = this.player.x - prevX;
+    const dy = this.player.y - prevY;
+    const len = Math.hypot(dx, dy);
+    const normalStep = PLAYER_SPEED * (TICK_MS / 1000);
+    const s = PLAYER_STRETCH * (len / normalStep); // about 3x as much while boosting
+    const ux = len > 0 ? Math.abs(dx) / len : 0;
+    const uy = len > 0 ? Math.abs(dy) / len : 0;
+
+    this.playerPop = lerp(this.playerPop, 1, 0.15);
+    this.player.setScale(
+      lerp(this.player.scaleX, (1 + s * ux - 0.6 * s * uy) * this.playerPop, 0.35),
+      lerp(this.player.scaleY, (1 + s * uy - 0.6 * s * ux) * this.playerPop, 0.35),
+    );
+
+    const glowTarget = this.glowBaseScale * (1 + 0.45 * danger) * this.playerPop;
+    this.playerGlow.setScale(lerp(this.playerGlow.scaleX, glowTarget, 0.25));
+    this.playerGlow.setAlpha(0.8 + 0.2 * danger);
+  }
+
+  private popPlayer() {
+    this.playerPop = PLAYER_POP_SCALE;
+    this.player.setScale(PLAYER_POP_SCALE);
+  }
+
+  // A thin ring that races outward and fades
+  private shockwave(x: number, y: number, color: number, radius: number) {
+    const ring = this.add.circle(x, y, 10).setStrokeStyle(2, color, 0.9).setDepth(4);
+    this.tweens.add({
+      targets: ring,
+      radius,
+      alpha: 0,
+      duration: 380,
+      ease: 'Cubic.easeOut',
+      onComplete: () => ring.destroy(),
+    });
+  }
+
+  // Slipped right past a ghost and lived
+  private closeCall() {
+    this.shockwave(this.player.x, this.player.y, 0xffffff, 55);
+    sfx.closeCall();
+  }
+
+  private afterimage(alpha: number) {
     const ghost = this.add
-      .rectangle(this.player.x, this.player.y, PLAYER_SIZE, PLAYER_SIZE, COLORS.player, 0.5)
+      .rectangle(this.player.x, this.player.y, PLAYER_SIZE, PLAYER_SIZE, COLORS.player, alpha)
       .setDepth(2);
     this.tweens.add({ targets: ghost, alpha: 0, duration: 250, onComplete: () => ghost.destroy() });
   }
@@ -354,10 +460,17 @@ export class GameScene extends Phaser.Scene {
       .setAlpha(0.15)
       .setDepth(2);
     const trail = this.add.graphics().setDepth(1);
-    this.ghosts.push({ recording: this.current, rect, trail, near: false });
+    // Every ghost restarts from its first position, so no one is "near" any more
+    for (const g of this.ghosts) {
+      g.near = false;
+      g.closest = Infinity;
+    }
+    this.ghosts.push({ recording: this.current, rect, trail, near: false, closest: Infinity });
     this.refreshGhostColors();
     this.showSpawnRings();
     this.burst(this.target.x, this.target.y); // target has not moved yet
+    this.shockwave(this.target.x, this.target.y, COLORS.target, 70);
+    this.popPlayer();
 
     // All ghosts restart from tick 0 because tick is shared
     this.current = new Recording();
@@ -422,17 +535,50 @@ export class GameScene extends Phaser.Scene {
 
   private createPickup(kind: PickupKind, x: number, y: number) {
     const color = kind === 'time' ? COLORS.pickupTime : COLORS.pickupEraser;
-    const disc = this.add.circle(x, y, PICKUP_RADIUS, color).setDepth(1);
+    const glow = addGlow(this, 0, 0, color, PICKUP_RADIUS * 3.2);
+    const icon = kind === 'time' ? this.drawClockIcon(color) : this.drawEraseIcon(color);
     const label = this.add
-      .text(x, y - PICKUP_RADIUS - 12, kind === 'time' ? '+TIME' : 'ERASE', {
+      .text(0, -PICKUP_RADIUS - 16, kind === 'time' ? '+TIME' : 'ERASE', {
         fontFamily: 'monospace',
-        fontSize: '14px',
-        color: COLORS.text,
+        fontSize: '13px',
+        fontStyle: 'bold',
+        color: cssColor(color),
       })
-      .setOrigin(0.5)
-      .setDepth(1);
-    this.tweens.add({ targets: disc, scale: 1.25, duration: 400, yoyo: true, repeat: -1 });
-    this.pickup = { kind, disc, label, ticksLeft: PICKUP_LIFETIME_TICKS };
+      .setOrigin(0.5);
+
+    const body = this.add.container(x, y, [glow, ...icon, label]).setDepth(1).setScale(0);
+    this.tweens.add({ targets: body, scale: 1, duration: 300, ease: 'Back.easeOut' }); // pop in
+    this.pickup = { kind, x, y, body, ticksLeft: PICKUP_LIFETIME_TICKS };
+  }
+
+  // +TIME: a clock face whose hand sweeps round. Drawn around (0, 0) to sit in the pickup's container.
+  private drawClockIcon(color: number): Phaser.GameObjects.GameObject[] {
+    const r = PICKUP_RADIUS;
+    const face = this.add.circle(0, 0, r, COLORS.background, 0.9).setStrokeStyle(2.5, color);
+    const marks = this.add.graphics().lineStyle(2, color, 1);
+    for (let i = 0; i < 4; i++) {
+      const a = (i * Math.PI) / 2;
+      marks.lineBetween(Math.cos(a) * (r - 6), Math.sin(a) * (r - 6), Math.cos(a) * (r - 3), Math.sin(a) * (r - 3));
+    }
+    const hand = this.add.rectangle(0, 0, 2.5, r - 4, color).setOrigin(0.5, 1); // pivots on the center
+    const hub = this.add.circle(0, 0, 2.5, color);
+    this.tweens.add({ targets: hand, angle: 360, duration: 1200, repeat: -1 });
+    return [face, marks, hand, hub];
+  }
+
+  // ERASE: a spinning diamond marked with an X, sending out shockwave rings that "clear the area"
+  private drawEraseIcon(color: number): Phaser.GameObjects.GameObject[] {
+    const r = PICKUP_RADIUS;
+    const wave = this.add.circle(0, 0, r).setStrokeStyle(2, color, 0.8);
+    this.tweens.add({ targets: wave, scale: 2.4, alpha: 0, duration: 900, repeat: -1 });
+    const gem = this.add.rectangle(0, 0, r * 1.45, r * 1.45, color);
+    const cross = this.add.graphics().lineStyle(3, COLORS.background, 1);
+    const s = r * 0.38;
+    cross.lineBetween(-s, -s, s, s);
+    cross.lineBetween(-s, s, s, -s);
+    // Same angle for both, so the X always runs corner to corner (an X, never a "+")
+    this.tweens.add({ targets: [gem, cross], angle: { from: 45, to: 405 }, duration: 2400, repeat: -1 });
+    return [wave, gem, cross];
   }
 
   // Once per tick: count down, blink near the end, and collect on touch
@@ -446,20 +592,21 @@ export class GameScene extends Phaser.Scene {
     }
 
     const faded = p.ticksLeft < PICKUP_BLINK_TICKS && Math.floor(p.ticksLeft / 6) % 2 === 0;
-    p.disc.setAlpha(faded ? 0.25 : 1);
-    p.label.setAlpha(faded ? 0.25 : 1);
+    p.body.setAlpha(faded ? 0.25 : 1);
 
     const reach = PLAYER_SIZE / 2 + PICKUP_RADIUS;
-    if (Phaser.Math.Distance.Between(this.player.x, this.player.y, p.disc.x, p.disc.y) < reach) {
+    if (Phaser.Math.Distance.Between(this.player.x, this.player.y, p.x, p.y) < reach) {
       this.collectPickup(p);
     }
   }
 
   private collectPickup(p: Pickup) {
-    const { x, y } = p.disc;
+    const { x, y } = p;
     const color = p.kind === 'time' ? COLORS.pickupTime : COLORS.pickupEraser;
     this.clearPickup();
     this.burst(x, y, color);
+    this.shockwave(x, y, color, 60);
+    this.popPlayer();
     sfx.powerup();
 
     if (p.kind === 'time') {
@@ -483,6 +630,7 @@ export class GameScene extends Phaser.Scene {
       const oldest = this.ghosts.shift()!;
       this.recordings.shift();
       this.burst(oldest.rect.x, oldest.rect.y, oldest.rect.fillColor);
+      this.tweens.killTweensOf(oldest.rect); // it may be mid near-miss pop
       oldest.rect.destroy();
       oldest.trail.destroy();
     }
@@ -492,9 +640,9 @@ export class GameScene extends Phaser.Scene {
 
   private clearPickup() {
     if (!this.pickup) return;
-    this.tweens.killTweensOf(this.pickup.disc);
-    this.pickup.disc.destroy();
-    this.pickup.label.destroy();
+    const { body } = this.pickup;
+    this.tweens.killTweensOf([body, ...body.list]);
+    body.destroy(); // takes its children with it
     this.pickup = null;
   }
 
@@ -526,12 +674,14 @@ export class GameScene extends Phaser.Scene {
     return mixColor(COLORS.ghost, COLORS.ghostOld, Math.min(age / GHOST_AGE_FADE_ROUNDS, 1));
   }
 
-  // Ghosts age every round, so recolor the rects and redraw the trails
+  // Ghosts age every round, so recolor the rects and redraw the trails.
+  // A see-through fill with a solid outline gives them a spectral look.
   private refreshGhostColors() {
     const newest = this.ghosts.length - 1;
     this.ghosts.forEach((g, i) => {
       const color = this.ghostColor(newest - i);
-      g.rect.setFillStyle(color);
+      g.rect.setFillStyle(color, 0.45);
+      if (!g.near) g.rect.setStrokeStyle(1.5, color, 1);
       this.drawTrail(g.trail, g.recording, color);
     });
   }
@@ -606,6 +756,13 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.target.setPosition(x, y);
+    this.targetRing.setPosition(x, y);
+    this.targetGlow.setPosition(x, y);
+
+    // Pop in rather than appear
+    this.target.setScale(0);
+    this.targetRing.setScale(0);
+    this.tweens.add({ targets: [this.target, this.targetRing], scale: 1, duration: 260, ease: 'Back.easeOut' });
   }
 
   // ---------- Collision ----------
@@ -723,11 +880,13 @@ export class GameScene extends Phaser.Scene {
       this.pauseUi.forEach((o) => o.destroy());
       this.pauseUi = [];
       this.tweens.resumeAll();
+      music.start();
       this.accumulator = 0; // no catch-up burst for the time spent paused
       return;
     }
 
     this.tweens.pauseAll();
+    music.stop();
     const { width, height } = ARENA;
     const dim = this.add
       .rectangle(width / 2, height / 2, width, height, COLORS.background, 0.7)
@@ -772,7 +931,8 @@ export class GameScene extends Phaser.Scene {
   private gameOver(title = 'CAUGHT BY YOUR PAST', culprit?: Ghost) {
     this.isGameOver = true;
     this.player.setFillStyle(COLORS.playerDead);
-    this.cameras.main.shake(200, 0.01);
+    setGlowColor(this.playerGlow, COLORS.playerDead);
+    this.cameras.main.shake(SHAKE_MS, SHAKE_INTENSITY);
     sfx.gameOver();
 
     const { width, height } = ARENA;
@@ -782,6 +942,7 @@ export class GameScene extends Phaser.Scene {
     if (culprit) {
       culprit.rect.setDepth(12).setAlpha(1);
       this.player.setDepth(12);
+      this.playerGlow.setDepth(11.5);
       const ring = this.add
         .circle(culprit.rect.x, culprit.rect.y, 34)
         .setStrokeStyle(3, COLORS.playerDead)
@@ -824,7 +985,7 @@ export class GameScene extends Phaser.Scene {
 
     button.on('pointerover', () => button.setAlpha(0.85));
     button.on('pointerout', () => button.setAlpha(1));
-    button.on('pointerup', () => this.scene.restart());
+    button.on('pointerup', () => this.restartGame());
 
     this.add
       .text(width / 2, 600, 'or press Space', {
@@ -835,7 +996,12 @@ export class GameScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setDepth(13);
 
-    this.input.keyboard!.once('keydown-SPACE', () => this.scene.restart());
+    this.input.keyboard!.once('keydown-SPACE', () => this.restartGame());
+  }
+
+  private restartGame() {
+    sfx.start();
+    this.scene.restart();
   }
 
   private showLeaderboard({ entries, rank }: { entries: ScoreEntry[]; rank: number }) {

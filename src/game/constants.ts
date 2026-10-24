@@ -72,7 +72,7 @@ export const ROUND_TIME_SHRINK_TICKS = 6; // 0.1 s per round
 export const ROUND_TIME_MIN_TICKS = 180; // 3 s floor
 
 // Pickups: rare extras that appear beside the target and vanish after a few seconds.
-export const PICKUP_RADIUS = 13;
+export const PICKUP_RADIUS = 15;
 export const PICKUP_MIN_ROUND = 2; // score needed before pickups can appear
 export const PICKUP_CHANCE = 0.35; // chance per round
 export const PICKUP_LIFETIME_TICKS = 270; // 4.5 s
@@ -96,6 +96,13 @@ export const TARGET_MIN_DIST_FROM_GHOST_END = 80;
 
 // A ghost closer than this to the player (after the grace period) lights up as a warning.
 export const NEAR_MISS_DIST = 70;
+// Slipping past a ghost closer than this (and surviving) counts as a close call: a ring and a chime.
+export const CLOSE_CALL_DIST = 36;
+
+// Game feel: the player stretches a little in the direction it moves (more when boosting)
+// and pops bigger for a moment when it grabs something. Both ease back on their own.
+export const PLAYER_STRETCH = 0.06;
+export const PLAYER_POP_SCALE = 1.35;
 
 // Radius of the on-screen joystick ring drawn while dragging.
 export const JOYSTICK_RADIUS = 56;
@@ -114,6 +121,12 @@ export const LEADERBOARD_SIZE = 10;
 
 // Master volume for sound effects (0 to 1).
 export const SFX_VOLUME = 0.15;
+// Background music volume (0 to 1). Kept well under the effects so it stays in the background.
+export const MUSIC_VOLUME = 0.05;
+
+// Camera shake on game over. Intensity is a fraction of the screen size.
+export const SHAKE_MS = 120;
+export const SHAKE_INTENSITY = 0.004;
 
 export const COLORS = {
   background: 0x0d0f14,
