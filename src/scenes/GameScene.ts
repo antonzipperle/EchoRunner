@@ -576,8 +576,8 @@ export class GameScene extends Phaser.Scene {
     const s = r * 0.38;
     cross.lineBetween(-s, -s, s, s);
     cross.lineBetween(-s, s, s, -s);
-    // Same angle for both, so the X always runs corner to corner (an X, never a "+")
-    this.tweens.add({ targets: [gem, cross], angle: { from: 45, to: 405 }, duration: 2400, repeat: -1 });
+    // Only the gem spins; the X stays put so it always reads as a delete "×", never a "+"
+    this.tweens.add({ targets: gem, angle: { from: 45, to: 405 }, duration: 2400, repeat: -1 });
     return [wave, gem, cross];
   }
 

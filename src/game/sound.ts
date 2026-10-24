@@ -1,9 +1,29 @@
 import { MUSIC_VOLUME, SFX_VOLUME } from './constants';
 
 // Sound effects and music made with the Web Audio API, no audio files.
-// The AudioContext is created on first use, which always happens after a key press or click,
-// so the browser's autoplay rules are satisfied.
 let ctx: AudioContext | null = null;
+
+// Browsers only let audio start from inside a real tap or key press. Phaser runs its key and
+// pointer callbacks later, in its game loop, and Safari does not count that as a user gesture,
+// so the audio would stay silent there. Unlock it straight from the DOM events instead.
+const UNLOCK_EVENTS = ['pointerdown', 'keydown', 'touchend'];
+
+function unlockAudio() {
+  const audio = getContext();
+  if (!audio) return;
+  // Play one silent sample: iOS Safari only unlocks once something has actually played
+  const silence = audio.createBufferSource();
+  silence.buffer = audio.createBuffer(1, 1, audio.sampleRate);
+  silence.connect(audio.destination);
+  silence.start();
+  void audio.resume().then(() => {
+    if (audio.state === 'running') {
+      UNLOCK_EVENTS.forEach((e) => window.removeEventListener(e, unlockAudio, true));
+    }
+  });
+}
+
+UNLOCK_EVENTS.forEach((e) => window.addEventListener(e, unlockAudio, true));
 
 // Mute is remembered between visits
 const MUTE_KEY = 'echo-runner-muted';
