@@ -135,6 +135,7 @@ export class GameScene extends Phaser.Scene {
   private touchStart: Phaser.Math.Vector2 | null = null;
   private touchPointerId: number | null = null; // the finger that owns the drag
   private touchDir = new Phaser.Math.Vector2();
+  private steeringByDrag = false; // the last input came from a drag: no inertia (a finger is smooth already)
 
   private boostTicksLeft = 0; // ticks of boosted speed remaining
   private smashTicksLeft = 0; // ticks the dash can still smash ghosts (the boost plus a little leeway)
@@ -196,6 +197,7 @@ export class GameScene extends Phaser.Scene {
     this.touchStart = null;
     this.touchPointerId = null;
     this.touchDir.set(0, 0);
+    this.steeringByDrag = false;
     this.boostTicksLeft = 0;
     this.smashTicksLeft = 0;
     this.boostCooldown = 0;
@@ -421,13 +423,16 @@ export class GameScene extends Phaser.Scene {
     if (boosting && dir.lengthSq() === 0) dir = this.lastDir; // dash even when no key is held
     const speed = PLAYER_SPEED * (boosting ? BOOST_SPEED_MULT : 1);
 
-    // Ease toward the wanted velocity: turns curve, starts and stops glide a little,
-    // and after a boost the extra speed bleeds off instead of cutting out
-    const response = boosting
-      ? PLAYER_BOOST_RESPONSE
-      : dir.lengthSq() === 0
-        ? PLAYER_STOP_RESPONSE
-        : PLAYER_RESPONSE;
+    // Keys: ease toward the wanted velocity, so turns curve, starts and stops glide a little,
+    // and after a boost the extra speed bleeds off instead of cutting out.
+    // Drags follow the finger instantly: the finger already moves smoothly, and easing on top feels laggy.
+    const response = this.steeringByDrag
+      ? 1
+      : boosting
+        ? PLAYER_BOOST_RESPONSE
+        : dir.lengthSq() === 0
+          ? PLAYER_STOP_RESPONSE
+          : PLAYER_RESPONSE;
     this.vel.x += (dir.x * speed - this.vel.x) * response;
     this.vel.y += (dir.y * speed - this.vel.y) * response;
 
@@ -1147,7 +1152,11 @@ export class GameScene extends Phaser.Scene {
     const down = this.cursors.down.isDown || this.wasd.S.isDown;
 
     const dir = new Phaser.Math.Vector2(Number(right) - Number(left), Number(down) - Number(up));
-    if (dir.lengthSq() === 0) dir.copy(this.touchDir);
+    if (dir.lengthSq() > 0) this.steeringByDrag = false;
+    else {
+      dir.copy(this.touchDir);
+      if (this.touchPointerId !== null) this.steeringByDrag = true; // stays set after the finger lifts
+    }
 
     // Diagonal movement shouldn't be faster
     if (dir.lengthSq() > 1) dir.normalize();

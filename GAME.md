@@ -103,6 +103,8 @@ Single-screen arena game, Phaser 3 + TypeScript + Vite.
 34. [done] Risk recharges the dash (smashing was too strong, close calls too rare): the boost cooldown is now 5 s,
     but every close call takes a third off it (the boost buttons pop, and a chime plus ring play when it is full again).
     Close calls count within 48 px instead of 36, and the combo window is 4 s instead of 2.5 s.
+35. [done] No inertia for drag steering: touch (and mouse) drags move the player instantly again, since a finger is
+    already smooth and the easing made it feel less responsive. Keyboard movement keeps its inertia.
 
 ## Later (ideas parked, not started)
 - CrazyGames Full Launch (only if they select the game): CrazyGames SDK, gameplay start/stop events,
