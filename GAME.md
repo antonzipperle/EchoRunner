@@ -85,6 +85,9 @@ Single-screen arena game, Phaser 3 + TypeScript + Vite.
     instead of text; CUSTOMIZE opens a locker with tappable body and trail tiles, locks with level numbers and a live
     preview. Pause shows a big RESUME and HOME / RESTART / SOUND (keys P, H, R, M); the HUD pause is an icon.
     Buttons appear immediately and are at least 48px across.
+29. [done] Icon-based game-over screen: a big round count with a star NEW BEST badge, the run's stats as icon chips
+    (close calls, boosts, pickups, erased ghosts), the XP row, your top runs as bars instead of text rows, and round
+    HOME / RESTART / CUSTOMIZE buttons (keys H / Space / C). CUSTOMIZE opens the start screen on the locker.
 
 ## Later (ideas parked, not started)
 - CrazyGames Full Launch (only if they select the game): CrazyGames SDK, gameplay start/stop events,

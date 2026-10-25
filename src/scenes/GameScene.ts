@@ -60,14 +60,21 @@ import { BODIES, TRAILS, bodyColorAt, trailColor, type Body, type Trail } from '
 import { Recording } from '../game/Recording';
 import { submitScore, type ScoreEntry } from '../game/leaderboard';
 import {
+  boostIcon,
+  closeCallIcon,
+  erasedIcon,
   homeIcon,
   iconButton,
+  lookIcon,
   pauseIcon,
+  pickupIcon,
   playIcon,
   restartIcon,
   soundOffIcon,
   soundOnIcon,
+  starIcon,
   type IconButton,
+  type IconDrawer,
 } from '../game/ui';
 import { isMuted, music, sfx, toggleMuted } from '../game/sound';
 
@@ -850,6 +857,9 @@ export class GameScene extends Phaser.Scene {
     keyboard.on('keydown-M', () => this.toggleMute());
     keyboard.on('keydown-H', () => this.goHome()); // only does something on the game-over and pause screens
     keyboard.on('keydown-R', () => this.restartFromPause()); // only while paused
+    keyboard.on('keydown-C', () => {
+      if (this.isGameOver) this.goHome(true); // game over: straight to the customize panel
+    });
     // Shift, not Space: Space restarts after game over, and boost gets spammed near a death
     keyboard.on('keydown-SHIFT', () => this.tryBoost());
 
@@ -1022,57 +1032,52 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.add
-      .text(width / 2, 90, title, {
-        fontFamily: 'monospace',
-        fontSize: '48px',
-        color: COLORS.text,
-      })
+      .text(width / 2, 86, title, { fontFamily: 'monospace', fontSize: '44px', fontStyle: 'bold', color: COLORS.text })
       .setOrigin(0.5)
       .setDepth(13);
 
-    const rounds = this.add
-      .text(width / 2, 145, `Rounds survived: ${this.score}`, {
-        fontFamily: 'monospace',
-        fontSize: '26px',
-        color: COLORS.textMuted,
-      })
-      .setOrigin(0.5)
-      .setDepth(13);
+    // A soft card behind the stats, XP and bars, so a culprit ghost that died there doesn't clutter them
+    this.add
+      .graphics()
+      .setDepth(12.5)
+      .fillStyle(COLORS.panel, 0.88)
+      .fillRoundedRect(width / 2 - 350, 230, 700, 286, 18);
 
+    // Top to bottom: big round count, stat chips, XP, top runs as bars, then round buttons.
+    // All information only: Space or RESTART goes straight into the next run.
+    const result = submitScore(this.score);
+    this.showScore(result.rank === 0);
     this.showRunStats();
     this.showXp();
-    const result = submitScore(this.score);
-    if (result.rank === 0) this.showNewBest(rounds);
-    this.showLeaderboard(result);
-
-    const button = this.add
-      .rectangle(width / 2, 540, 240, 64, COLORS.player)
-      .setDepth(13)
-      .setInteractive({ useHandCursor: true });
-    this.add
-      .text(width / 2, 540, 'RESTART', {
-        fontFamily: 'monospace',
-        fontSize: '28px',
-        color: '#0d0f14',
-      })
-      .setOrigin(0.5)
-      .setDepth(14);
-
-    button.on('pointerover', () => button.setAlpha(0.85));
-    button.on('pointerout', () => button.setAlpha(1));
-    button.on('pointerup', () => this.restartGame());
-
-    this.add
-      .text(width / 2, 600, 'or press Space', {
-        fontFamily: 'monospace',
-        fontSize: '20px',
-        color: COLORS.textMuted,
-      })
-      .setOrigin(0.5)
-      .setDepth(13);
-    this.addHomeButton(642, 13);
+    this.showBoard(result);
+    this.showDeathButtons();
 
     this.input.keyboard!.once('keydown-SPACE', () => this.restartGame());
+  }
+
+  // HOME, a big RESTART, and CUSTOMIZE (straight into the locker), with key letters underneath
+  private showDeathButtons() {
+    const { width } = ARENA;
+    const y = 580;
+    const side = 150;
+    iconButton(this, width / 2 - side, y, 42, homeIcon, () => this.goHome(), { depth: 13 });
+    iconButton(this, width / 2, y, 60, restartIcon, () => this.restartGame(), {
+      fill: COLORS.player,
+      ring: COLORS.player,
+      iconColor: COLORS.background,
+      depth: 13,
+    });
+    const look = lookIcon(this.body.color, this.trail.shape, [0, 1, 2].map((i) => trailColor(this.trail, this.body.color, i * 4)));
+    iconButton(this, width / 2 + side, y, 42, look, () => this.goHome(true), { depth: 13 });
+
+    const keyHint = (x: number, key: string) =>
+      this.add
+        .text(x, y + 60 + 22, key, { fontFamily: 'monospace', fontSize: '20px', color: COLORS.textMuted })
+        .setOrigin(0.5)
+        .setDepth(13);
+    keyHint(width / 2 - side, 'H');
+    keyHint(width / 2, 'SPACE');
+    keyHint(width / 2 + side, 'C');
   }
 
   private restartGame() {
@@ -1080,51 +1085,71 @@ export class GameScene extends Phaser.Scene {
     this.scene.restart();
   }
 
-  // Back to the start screen (to change the look, for example). Only from game over or pause.
-  // Leaving from pause ends the run without XP or a score.
-  private goHome() {
+  // Back to the start screen. Only from game over or pause; leaving from pause ends the run
+  // without XP or a score. With openLocker the start screen opens straight on the customize panel.
+  private goHome(openLocker = false) {
     if (this.leavingHome || !(this.isGameOver || this.isPaused)) return;
     this.leavingHome = true;
     const cam = this.cameras.main;
     cam.fadeOut(200, 13, 15, 20); // matches the background color
-    cam.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => this.scene.start('StartScene'));
+    cam.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => this.scene.start('StartScene', { openLocker }));
   }
 
-  // Small secondary button under the main action, so Space / RESTART stay the fast path
-  private addHomeButton(y: number, depth: number): Phaser.GameObjects.Text {
-    const home = this.add
-      .text(ARENA.width / 2, y, 'HOME [H]', { fontFamily: 'monospace', fontSize: '20px', color: COLORS.text })
+  // The run's count, big, with a star badge when it tops the board
+  private showScore(isBest: boolean) {
+    const { width } = ARENA;
+    const count = this.add
+      .text(width / 2, 158, String(this.score), { fontFamily: 'monospace', fontSize: '72px', fontStyle: 'bold', color: COLORS.text })
       .setOrigin(0.5)
-      .setPadding(14, 8)
-      .setDepth(depth)
-      .setInteractive({ useHandCursor: true });
-    home.on('pointerover', () => home.setAlpha(0.7));
-    home.on('pointerout', () => home.setAlpha(1));
-    home.on('pointerup', () => this.goHome());
-    return home;
+      .setDepth(13);
+    this.add
+      .text(width / 2, 206, this.score === 1 ? 'ROUND' : 'ROUNDS', { fontFamily: 'monospace', fontSize: '20px', color: COLORS.textMuted })
+      .setOrigin(0.5)
+      .setDepth(13);
+    if (!isBest) return;
+
+    const x = width / 2 + count.width / 2 + 34;
+    const star = this.add.graphics().setDepth(13).setPosition(x, 150);
+    starIcon(star, 16, COLORS.target);
+    const label = this.add
+      .text(x + 24, 150, 'NEW BEST', { fontFamily: 'monospace', fontSize: '22px', fontStyle: 'bold', color: cssColor(COLORS.target) })
+      .setOrigin(0, 0.5)
+      .setDepth(13);
+    for (const part of [star, label]) {
+      part.setScale(0);
+      this.tweens.add({ targets: part, scale: 1, duration: 320, ease: 'Back.easeOut' });
+    }
+    this.tweens.add({ targets: star, angle: 360, duration: 4000, repeat: -1 });
   }
 
-  // One line of what happened this run. Information only: it never delays the restart.
+  // What happened this run as icon chips: close calls, boosts, pickups (and erased ghosts if any)
   private showRunStats() {
     const { closeCalls, boosts, pickups, erased } = this.runStats;
-    const parts = [`Close calls ${closeCalls}`, `Boosts ${boosts}`, `Pickups ${pickups}`];
-    if (erased > 0) parts.push(`Ghosts erased ${erased}`);
-    this.add
-      .text(ARENA.width / 2, 182, parts.join('     '), {
-        fontFamily: 'monospace',
-        fontSize: '20px',
-        color: COLORS.text,
-      })
-      .setOrigin(0.5)
-      .setAlpha(0.85)
-      .setDepth(13);
+    const chips: [IconDrawer, number, number][] = [
+      [closeCallIcon, closeCalls, 0xffffff],
+      [boostIcon, boosts, this.body.color],
+      [pickupIcon, pickups, COLORS.pickupTime],
+    ];
+    if (erased > 0) chips.push([erasedIcon, erased, COLORS.ghostOld]);
+
+    const y = 258;
+    const step = 140;
+    chips.forEach(([draw, value, color], i) => {
+      const x = ARENA.width / 2 + (i - (chips.length - 1) / 2) * step;
+      const icon = this.add.graphics().setDepth(13).setPosition(x - 20, y);
+      draw(icon, 14, color);
+      this.add
+        .text(x + 2, y, String(value), { fontFamily: 'monospace', fontSize: '26px', fontStyle: 'bold', color: COLORS.text })
+        .setOrigin(0, 0.5)
+        .setDepth(13);
+    });
   }
 
   // XP for this run, a level bar that fills up, and any look the run unlocked. One line, no waiting.
   private showXp() {
     const res = addXp(runXp({ rounds: this.score, closeCalls: this.runStats.closeCalls, pickups: this.runStats.pickups }));
     const levelUp = res.levelAfter > res.levelBefore;
-    const y = 216;
+    const y = 310;
     const text = (s: string, color: string, bold: boolean) =>
       this.add
         .text(0, y, s, { fontFamily: 'monospace', fontSize: '20px', fontStyle: bold ? 'bold' : 'normal', color })
@@ -1134,7 +1159,7 @@ export class GameScene extends Phaser.Scene {
     const xp = text(`+${res.gained} XP`, cssColor(this.body.color), true);
     const level = levelUp
       ? text(`LEVEL UP! ${res.levelAfter}`, cssColor(COLORS.target), true)
-      : text(`LEVEL ${res.levelAfter}`, COLORS.text, false);
+      : text(`LV ${res.levelAfter}`, COLORS.text, false);
     // "NEW BODY: EMBER" / "NEW TRAIL: DOTS", or a count when a big run unlocks several at once
     const [first] = res.unlocked;
     const unlock =
@@ -1180,52 +1205,40 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  // A badge that pops in beside the round count when this run tops the board
-  private showNewBest(rounds: Phaser.GameObjects.Text) {
-    const badge = this.add
-      .text(rounds.x + rounds.width / 2 + 18, rounds.y, 'NEW BEST!', {
-        fontFamily: 'monospace',
-        fontSize: '26px',
-        fontStyle: 'bold',
-        color: cssColor(COLORS.target),
-      })
-      .setOrigin(0, 0.5)
-      .setDepth(13)
-      .setScale(0);
-    this.tweens.add({ targets: badge, scale: 1, duration: 320, ease: 'Back.easeOut' });
-    this.tweens.add({ targets: badge, alpha: 0.6, duration: 600, yoyo: true, repeat: -1, delay: 320 });
-  }
+  // Your best runs as bars (top 5, plus this run if it ranked lower), this run in your body color.
+  // The bars grow in quickly; nothing waits on them.
+  private showBoard({ entries, rank }: { entries: ScoreEntry[]; rank: number }) {
+    if (entries.length === 0) return;
+    const rows = entries.slice(0, 5).map((entry, index) => ({ entry, index }));
+    if (rank >= 5) rows.push({ entry: entries[rank], index: rank });
 
-  private showLeaderboard({ entries, rank }: { entries: ScoreEntry[]; rank: number }) {
-    const { width } = ARENA;
-    const top = 250; // below the rounds, the run stats and the XP line
-    const rowHeight = 24;
+    const max = Math.max(...entries.map((e) => e.score), 1);
+    const left = ARENA.width / 2 - 130;
+    const barMax = 260;
+    const top = 362;
+    const rowHeight = 25;
+    const bars = this.add.graphics().setDepth(13);
+    const numbers: Phaser.GameObjects.Text[] = [];
 
-    if (entries.length === 0) {
-      this.add
-        .text(width / 2, top, 'No scores yet', {
-          fontFamily: 'monospace',
-          fontSize: '20px',
-          color: COLORS.textMuted,
-        })
-        .setOrigin(0.5)
-        .setDepth(13);
-      return;
-    }
-
-    entries.forEach((entry, i) => {
-      const isThisRun = i === rank;
-      const line =
-        `${String(i + 1).padStart(2)}.  ${String(entry.score).padStart(3)} rounds  ${entry.date}` +
-        (isThisRun ? '  <- you' : '');
-      this.add
-        .text(width / 2, top + i * rowHeight, line, {
-          fontFamily: 'monospace',
-          fontSize: '20px',
-          color: isThisRun ? '#4fd1c5' : COLORS.textMuted,
-        })
-        .setOrigin(0.5, 0)
-        .setDepth(13);
+    rows.forEach(({ entry, index }, row) => {
+      const y = top + row * rowHeight;
+      const mine = index === rank;
+      const style = { fontFamily: 'monospace', fontSize: '20px', fontStyle: mine ? 'bold' : 'normal', color: mine ? COLORS.text : COLORS.textMuted };
+      this.add.text(left - 16, y, String(index + 1), style).setOrigin(1, 0.5).setDepth(13);
+      numbers.push(this.add.text(left, y, String(entry.score), style).setOrigin(0, 0.5).setDepth(13));
     });
+
+    const grow = { p: 0 };
+    const draw = () => {
+      bars.clear();
+      rows.forEach(({ entry, index }, row) => {
+        const y = top + row * rowHeight;
+        const width = Math.max(10, (barMax * entry.score) / max) * grow.p;
+        bars.fillStyle(index === rank ? this.body.color : COLORS.panelRing, 1).fillRoundedRect(left, y - 7, Math.max(width, 1), 14, 7);
+        numbers[row].setX(left + width + 10);
+      });
+    };
+    draw();
+    this.tweens.add({ targets: grow, p: 1, duration: 450, ease: 'Cubic.easeOut', onUpdate: draw });
   }
 }

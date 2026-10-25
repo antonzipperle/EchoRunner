@@ -123,6 +123,52 @@ export const closeIcon: IconDrawer = (g, r, c) => {
   g.lineBetween(-0.3 * r, 0.3 * r, 0.3 * r, -0.3 * r);
 };
 
+// ---------- Small stat icons (game-over screen) ----------
+
+// Close call: a ring around a ring, like the white flash you get
+export const closeCallIcon: IconDrawer = (g, r, c) => {
+  g.lineStyle(0.14 * r, c, 1).strokeCircle(0, 0, 0.85 * r);
+  g.lineStyle(0.14 * r, c, 0.5).strokeCircle(0, 0, 0.45 * r);
+};
+
+// Boost: a double chevron pointing ahead
+export const boostIcon: IconDrawer = (g, r, c) => {
+  g.lineStyle(0.22 * r, c, 1);
+  for (const dx of [-0.35 * r, 0.25 * r]) {
+    g.beginPath();
+    g.moveTo(dx - 0.3 * r, -0.6 * r);
+    g.lineTo(dx + 0.3 * r, 0);
+    g.lineTo(dx - 0.3 * r, 0.6 * r);
+    g.strokePath();
+  }
+};
+
+// Pickup: a gem
+export const pickupIcon: IconDrawer = (g, r, c) => {
+  const p = Phaser.Geom.Point;
+  g.fillStyle(c, 1).fillPoints([new p(0, -0.85 * r), new p(0.75 * r, 0), new p(0, 0.85 * r), new p(-0.75 * r, 0)], true);
+};
+
+// Ghost erased: a ghost square with a cross through it
+export const erasedIcon: IconDrawer = (g, r, c) => {
+  g.fillStyle(c, 0.45).fillRect(-0.7 * r, -0.7 * r, 1.4 * r, 1.4 * r);
+  g.lineStyle(0.12 * r, c, 1).strokeRect(-0.7 * r, -0.7 * r, 1.4 * r, 1.4 * r);
+  g.lineStyle(0.16 * r, 0xffffff, 0.9);
+  g.lineBetween(-0.45 * r, -0.45 * r, 0.45 * r, 0.45 * r);
+  g.lineBetween(-0.45 * r, 0.45 * r, 0.45 * r, -0.45 * r);
+};
+
+// Five-pointed star, for NEW BEST
+export const starIcon: IconDrawer = (g, r, c) => {
+  const points: Phaser.Geom.Point[] = [];
+  for (let i = 0; i < 10; i++) {
+    const a = -Math.PI / 2 + (i * Math.PI) / 5;
+    const radius = i % 2 === 0 ? r : r * 0.45;
+    points.push(new Phaser.Geom.Point(Math.cos(a) * radius, Math.sin(a) * radius));
+  }
+  g.fillStyle(c, 1).fillPoints(points, true);
+};
+
 export function lockIcon(g: Phaser.GameObjects.Graphics, x: number, y: number, s: number, c: number) {
   g.lineStyle(s * 0.16, c, 1);
   g.beginPath();

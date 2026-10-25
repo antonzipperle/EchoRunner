@@ -110,7 +110,7 @@ export class StartScene extends Phaser.Scene {
     super('StartScene');
   }
 
-  create() {
+  create(data?: { openLocker?: boolean }) {
     // scene.start() reuses this instance, so reset all state here
     this.elapsed = 0;
     this.lastPhase = 0;
@@ -137,6 +137,7 @@ export class StartScene extends Phaser.Scene {
     this.createButtons();
     this.setupInput();
     this.applyLook();
+    if (data?.openLocker) this.openLocker(); // came from the CUSTOMIZE button on the game-over screen
 
     // Exposed in dev mode only, for debugging in the browser console
     if (import.meta.env.DEV) {
