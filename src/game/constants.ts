@@ -35,7 +35,13 @@ export const PLAYER_STOP_RESPONSE = 0.3;
 // so your future ghosts dash too. At 3x for 15 ticks a boost covers about 240 px.
 export const BOOST_SPEED_MULT = 3;
 export const BOOST_TICKS = 15; // 0.25 s
-export const BOOST_COOLDOWN_TICKS = 150; // 2.5 s
+export const BOOST_COOLDOWN_TICKS = 300; // 5 s on its own...
+// ...but every close call takes this much off, so playing risky earns dashes (and smashes) back
+export const BOOST_REFILL_PER_CLOSE_CALL = 100; // a third of the cooldown
+// A dash is also a weapon: touching a ghost while boosting smashes it. The window runs a few ticks
+// past the end of the dash so a hit right at the end still counts.
+export const SMASH_GRACE_TICKS = 4;
+export const XP_PER_SMASH = 10;
 
 export const TARGET_SIZE = 28;
 
@@ -110,10 +116,11 @@ export const TARGET_MIN_DIST_FROM_GHOST_END = 80;
 // A ghost closer than this to the player (after the grace period) lights up as a warning.
 export const NEAR_MISS_DIST = 70;
 // Slipping past a ghost closer than this (and surviving) counts as a close call: a ring and a chime.
-export const CLOSE_CALL_DIST = 36;
+// (Ghosts catch you at 18 px, so this leaves a band of about 30 px to slip through.)
+export const CLOSE_CALL_DIST = 48;
 // Close calls within this window of the last one chain into a combo. Each link is worth
 // XP_PER_CLOSE_CALL times its place in the chain, up to COMBO_MAX times.
-export const COMBO_WINDOW_TICKS = 150; // 2.5 s
+export const COMBO_WINDOW_TICKS = 240; // 4 s
 export const COMBO_MAX = 5;
 
 // Game feel: the player stretches a little in the direction it moves (more when boosting)

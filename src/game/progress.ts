@@ -1,4 +1,4 @@
-import { XP_PER_PICKUP, XP_PER_ROUND } from './constants';
+import { XP_PER_PICKUP, XP_PER_ROUND, XP_PER_SMASH } from './constants';
 import { BODIES, TRAILS, type Body, type Trail } from './skins';
 
 // XP, level and the chosen body and trail, kept in this browser's localStorage
@@ -92,8 +92,8 @@ export function nextUnlockLevel(): number | undefined {
 }
 
 // closeCallXp already includes the combo bonus (the game adds it up close call by close call)
-export function runXp(run: { rounds: number; closeCallXp: number; pickups: number }): number {
-  return run.rounds * XP_PER_ROUND + run.closeCallXp + run.pickups * XP_PER_PICKUP;
+export function runXp(run: { rounds: number; closeCallXp: number; pickups: number; smashed: number }): number {
+  return run.rounds * XP_PER_ROUND + run.closeCallXp + run.pickups * XP_PER_PICKUP + run.smashed * XP_PER_SMASH;
 }
 
 export type Unlock = { kind: 'BODY' | 'TRAIL'; name: string; color: number };

@@ -162,6 +162,16 @@ export const erasedIcon: IconDrawer = (g, r, c) => {
   g.lineBetween(-0.45 * r, 0.45 * r, 0.45 * r, -0.45 * r);
 };
 
+// Smash: a ghost square bursting apart
+export const smashIcon: IconDrawer = (g, r, c) => {
+  g.fillStyle(c, 0.6).fillRect(-0.32 * r, -0.32 * r, 0.64 * r, 0.64 * r);
+  g.lineStyle(0.14 * r, c, 1);
+  for (let i = 0; i < 8; i++) {
+    const a = (i * Math.PI) / 4;
+    g.lineBetween(Math.cos(a) * 0.58 * r, Math.sin(a) * 0.58 * r, Math.cos(a) * 0.95 * r, Math.sin(a) * 0.95 * r);
+  }
+};
+
 // Combo: a small flame
 export const comboIcon: IconDrawer = (g, r, c) => {
   const p = Phaser.Geom.Point;

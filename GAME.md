@@ -11,7 +11,8 @@ Single-screen arena game, Phaser 3 + TypeScript + Vite.
   of that round is saved as a recording.
 - At the start of each round, ALL previous recordings replay at once as
   semi-transparent ghosts, starting from tick 0.
-- Touching a ghost = game over. Score = rounds completed.
+- Touching a ghost = game over, unless you are dashing (boost): a dash smashes the ghost instead.
+  Score = rounds completed.
 - When a ghost's recording ends, it stays at its last position.
 
 ## Rules for the code
@@ -96,6 +97,12 @@ Single-screen arena game, Phaser 3 + TypeScript + Vite.
     draining combo badge under the score. The best combo of the run shows on the game-over screen.
 32. [done] Music that grows with the run: a soft hi-hat joins at round 4, a second melody at 8, a low kick at 12,
     and the filter opens a little at each step. It drops back to the calm loop on death and on the home screen.
+33. [done] Dash smashes ghosts: touching a ghost while boosting (and for a few ticks after) destroys it instead of
+    ending the run: burst, shockwave, small shake, crunch, "SMASH". The player wears a white outline while the dash is
+    armed. +XP_PER_SMASH per smash, shown as a chip on the game-over screen. Ghosts in their spawn grace can't be smashed.
+34. [done] Risk recharges the dash (smashing was too strong, close calls too rare): the boost cooldown is now 5 s,
+    but every close call takes a third off it (the boost buttons pop, and a chime plus ring play when it is full again).
+    Close calls count within 48 px instead of 36, and the combo window is 4 s instead of 2.5 s.
 
 ## Later (ideas parked, not started)
 - CrazyGames Full Launch (only if they select the game): CrazyGames SDK, gameplay start/stop events,

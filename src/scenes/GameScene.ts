@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import {
   ARENA,
   BOOST_COOLDOWN_TICKS,
+  BOOST_REFILL_PER_CLOSE_CALL,
   BOOST_SPEED_MULT,
   BOOST_TICKS,
   BURST_DISTANCE,
@@ -47,6 +48,7 @@ import {
   SCORE_POP_SCALE,
   SHAKE_INTENSITY,
   SHAKE_MS,
+  SMASH_GRACE_TICKS,
   SPAWN_GRACE_TICKS,
   SPAWN_RING_RADIUS,
   TARGET_MIN_DIST_FROM_GHOST_END,
@@ -76,6 +78,7 @@ import {
   pickupIcon,
   playIcon,
   restartIcon,
+  smashIcon,
   soundOffIcon,
   soundOnIcon,
   starIcon,
@@ -134,6 +137,7 @@ export class GameScene extends Phaser.Scene {
   private touchDir = new Phaser.Math.Vector2();
 
   private boostTicksLeft = 0; // ticks of boosted speed remaining
+  private smashTicksLeft = 0; // ticks the dash can still smash ghosts (the boost plus a little leeway)
   private boostCooldown = 0; // ticks until the next boost; not reset between rounds
   private lastDir = new Phaser.Math.Vector2(1, 0); // so boosting while standing still still dashes
   private vel = new Phaser.Math.Vector2(); // px/s; eases toward the input rather than snapping to it
@@ -147,7 +151,7 @@ export class GameScene extends Phaser.Scene {
   private ghosts: Ghost[] = [];
 
   // What happened this run, for the summary on the game-over screen
-  private runStats = { closeCalls: 0, closeCallXp: 0, bestCombo: 0, boosts: 0, pickups: 0, erased: 0 };
+  private runStats = { closeCalls: 0, closeCallXp: 0, bestCombo: 0, boosts: 0, pickups: 0, erased: 0, smashed: 0 };
 
   // Close-call combo: how many in a row, and ticks left before the chain breaks
   private combo = 0;
@@ -186,13 +190,14 @@ export class GameScene extends Phaser.Scene {
     this.soundButton = null;
     this.pickup = null;
     this.bonusTicks = 0;
-    this.runStats = { closeCalls: 0, closeCallXp: 0, bestCombo: 0, boosts: 0, pickups: 0, erased: 0 };
+    this.runStats = { closeCalls: 0, closeCallXp: 0, bestCombo: 0, boosts: 0, pickups: 0, erased: 0, smashed: 0 };
     this.combo = 0;
     this.comboTicksLeft = 0;
     this.touchStart = null;
     this.touchPointerId = null;
     this.touchDir.set(0, 0);
     this.boostTicksLeft = 0;
+    this.smashTicksLeft = 0;
     this.boostCooldown = 0;
     this.lastDir.set(1, 0);
     this.vel.set(0, 0);
@@ -265,7 +270,7 @@ export class GameScene extends Phaser.Scene {
     this.updateTimer();
 
     this.hintText = this.add
-      .text(width / 2, height - margin - 45, 'Grab the yellow square. Avoid your past.\nMove: WASD, arrows or drag     Dash: Shift or the » button', {
+      .text(width / 2, height - margin - 45, 'Grab the yellow square. Avoid your past.\nMove: WASD, arrows or drag     Dash: Shift or »  (dash through ghosts to smash them)', {
         align: 'center',
         fontFamily: FONT,
         fontSize: '20px',
@@ -353,11 +358,17 @@ export class GameScene extends Phaser.Scene {
     }
     this.updatePlayerFeel(prevX, prevY, danger);
 
-    const caughtBy = graceOver ? this.ghostTouchingPlayer() : undefined;
-    if (caughtBy) {
-      this.gameOver(undefined, caughtBy);
-      return;
+    if (graceOver && this.smashTicksLeft > 0) {
+      // Dashing: every ghost you touch is smashed instead of catching you
+      this.ghostsInReach().forEach((g) => this.smashGhost(g));
+    } else {
+      const caughtBy = graceOver ? this.ghostTouchingPlayer() : undefined;
+      if (caughtBy) {
+        this.gameOver(undefined, caughtBy);
+        return;
+      }
     }
+    if (this.smashTicksLeft > 0 && --this.smashTicksLeft === 0) this.player.setStrokeStyle(); // dash disarmed
     if (slippedPast.length > 0) this.closeCall();
 
     if (this.overlaps(this.player, this.target, (PLAYER_SIZE + TARGET_SIZE) / 2)) {
@@ -441,6 +452,8 @@ export class GameScene extends Phaser.Scene {
     if (this.isGameOver || this.isPaused || this.boostCooldown > 0) return;
     this.boostTicksLeft = BOOST_TICKS;
     this.boostCooldown = BOOST_COOLDOWN_TICKS;
+    this.smashTicksLeft = BOOST_TICKS + SMASH_GRACE_TICKS;
+    this.player.setStrokeStyle(3, 0xffffff, 0.95); // armed: a white outline while the dash can smash
     this.runStats.boosts++;
     sfx.boost();
     this.shockwave(this.player.x, this.player.y, this.player.fillColor, 40);
@@ -551,6 +564,21 @@ export class GameScene extends Phaser.Scene {
     sfx.closeCall(level);
     if (this.combo >= 2) this.comboPopup(this.combo);
     this.updateComboBadge();
+    this.refillBoost();
+  }
+
+  // A close call recharges part of the boost; topping it up all the way gets its own little cue
+  private refillBoost() {
+    if (this.boostCooldown === 0) return;
+    this.boostCooldown = Math.max(0, this.boostCooldown - BOOST_REFILL_PER_CLOSE_CALL);
+    this.updateBoostUi();
+    for (const { button } of this.boostButtons) {
+      this.tweens.add({ targets: button.container, scale: { from: 1.18, to: 1 }, duration: 200, ease: 'Back.easeOut' });
+    }
+    if (this.boostCooldown === 0) {
+      sfx.boostReady();
+      this.shockwave(this.player.x, this.player.y, COLORS.player, 45);
+    }
   }
 
   private afterimage(alpha: number) {
@@ -928,6 +956,35 @@ export class GameScene extends Phaser.Scene {
     return this.ghosts.find((g) => this.overlaps(this.player, g.rect, reach));
   }
 
+  // Same reach as getting caught, but every ghost in it (a dash can smash several at once)
+  private ghostsInReach(): Ghost[] {
+    const reach = PLAYER_SIZE * GHOST_HITBOX_SCALE;
+    return this.ghosts.filter((g) => this.overlaps(this.player, g.rect, reach));
+  }
+
+  // A dash went through this ghost: it's gone for the rest of the run
+  private smashGhost(ghost: Ghost) {
+    const i = this.ghosts.indexOf(ghost);
+    if (i === -1) return;
+    this.ghosts.splice(i, 1);
+    const r = this.recordings.indexOf(ghost.recording); // the two lists are kept in step
+    if (r !== -1) this.recordings.splice(r, 1);
+
+    const { x, y, fillColor } = ghost.rect;
+    this.tweens.killTweensOf(ghost.rect); // it may be mid near-miss pop
+    ghost.rect.destroy();
+    ghost.trail.destroy();
+    this.refreshGhostColors(); // the survivors are younger now
+
+    this.runStats.smashed++;
+    this.burst(x, y, fillColor);
+    this.burst(x, y, 0xffffff);
+    this.shockwave(x, y, fillColor, 80);
+    this.cameras.main.shake(70, 0.0025);
+    sfx.smash();
+    this.floatText(x, y - 10, 'SMASH');
+  }
+
   // Axis-aligned box check: centers closer than `reach` on both axes
   private overlaps(
     a: Phaser.GameObjects.Rectangle,
@@ -1104,7 +1161,7 @@ export class GameScene extends Phaser.Scene {
     this.isGameOver = true;
     this.hintText?.destroy(); // a run can end before the first target; the hint would sit under HOME
     this.hintText = undefined;
-    this.player.setFillStyle(COLORS.playerDead);
+    this.player.setFillStyle(COLORS.playerDead).setStrokeStyle(); // no armed outline on a dead player
     setGlowColor(this.playerGlow, COLORS.playerDead);
     this.cameras.main.shake(SHAKE_MS, SHAKE_INTENSITY);
     sfx.gameOver();
@@ -1218,10 +1275,11 @@ export class GameScene extends Phaser.Scene {
 
   // What happened this run as icon chips: close calls, boosts, pickups (and erased ghosts if any)
   private showRunStats() {
-    const { closeCalls, bestCombo, boosts, pickups, erased } = this.runStats;
+    const { closeCalls, bestCombo, boosts, pickups, erased, smashed } = this.runStats;
     const chips: [IconDrawer, string, number][] = [[closeCallIcon, String(closeCalls), 0xffffff]];
     if (bestCombo >= 2) chips.push([comboIcon, `x${bestCombo}`, this.comboColor(bestCombo)]); // best combo of the run
     chips.push([boostIcon, String(boosts), this.body.color], [pickupIcon, String(pickups), COLORS.pickupTime]);
+    if (smashed > 0) chips.push([smashIcon, String(smashed), COLORS.ghost]); // ghosts smashed with a dash
     if (erased > 0) chips.push([erasedIcon, String(erased), COLORS.ghostOld]);
 
     const y = 258;
@@ -1239,8 +1297,8 @@ export class GameScene extends Phaser.Scene {
 
   // XP for this run, a level bar that fills up, and any look the run unlocked. One line, no waiting.
   private showXp() {
-    const { closeCallXp, pickups } = this.runStats;
-    const res = addXp(runXp({ rounds: this.score, closeCallXp, pickups }));
+    const { closeCallXp, pickups, smashed } = this.runStats;
+    const res = addXp(runXp({ rounds: this.score, closeCallXp, pickups, smashed }));
     const levelUp = res.levelAfter > res.levelBefore;
     const y = 310;
     const text = (s: string, color: string, bold: boolean) =>

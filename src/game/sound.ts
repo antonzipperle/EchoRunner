@@ -93,6 +93,17 @@ export const sfx = {
   pickup: () => blip(660, 1320, 0.12, 'square'),
   boost: () => blip(280, 840, 0.14, 'sawtooth'),
   powerup: () => blip(520, 1040, 0.2, 'triangle'),
+  // Two quick rising notes: the dash is charged again
+  boostReady: () => {
+    blip(880, 880, 0.06, 'triangle', 0, 0.5);
+    blip(1320, 1320, 0.1, 'triangle', 0.06, 0.5);
+  },
+  // A crunchy drop with a bright crack on top
+  smash: () => {
+    blip(240, 50, 0.22, 'square', 0, 0.7);
+    blip(1800, 600, 0.08, 'sawtooth', 0, 0.35);
+  },
+
   // Climbs a minor third with every link of a combo (level 1 = a single close call)
   closeCall: (level = 1) => {
     const up = 2 ** ((3 * (Math.min(level, 5) - 1)) / 12);
