@@ -78,6 +78,13 @@ Single-screen arena game, Phaser 3 + TypeScript + Vite.
 26. [done] Movement with a little inertia: the velocity eases toward the input (PLAYER_RESPONSE), so turns with
     WASD become arcs and ghost trails curve instead of being straight lines with sharp corners. Boosts kick in
     fast and their extra speed bleeds off smoothly; walls stop you in that direction.
+27. [done] Body and trail are separate unlockable items that mix freely. Bodies (color): CLASSIC, SKY, EMBER,
+    FROST, NEON, COMET, AURORA. Trails (shape): SQUARES, DOTS, DIAMONDS, SPARKS, PRISM (rainbow). Something unlocks
+    at almost every level. Old saves with a combined look carry over.
+28. [done] Icon menus for touch: the home screen has round CUSTOMIZE / PLAY / SOUND buttons (keys C / Space / M)
+    instead of text; CUSTOMIZE opens a locker with tappable body and trail tiles, locks with level numbers and a live
+    preview. Pause shows a big RESUME and HOME / RESTART / SOUND (keys P, H, R, M); the HUD pause is an icon.
+    Buttons appear immediately and are at least 48px across.
 
 ## Later (ideas parked, not started)
 - CrazyGames Full Launch (only if they select the game): CrazyGames SDK, gameplay start/stop events,
@@ -91,7 +98,8 @@ Single-screen arena game, Phaser 3 + TypeScript + Vite.
 - `src/game/Recording.ts`: one round of positions, one per tick.
 - `src/game/sound.ts`: Web Audio sound effects (`sfx.*`), the background music loop (`music.start()/stop()`) and the mute switch.
 - `src/game/leaderboard.ts`: local top-10 scores in localStorage.
-- `src/game/progress.ts`: XP, levels and the chosen look (localStorage). `src/game/skins.ts`: the list of looks.
+- `src/game/progress.ts`: XP, levels and the chosen body and trail (localStorage). `src/game/skins.ts`: the bodies and trails.
+- `src/game/ui.ts`: round icon buttons and the drawn icons (play, pause, home, restart, sound, close, lock, look).
 - `src/game/hiRes.ts`: sharp rendering (2x canvas, camera zoom, 2x text). Every scene calls `applyHiResCamera(this)`.
 - `src/game/visuals.ts`: shared drawing helpers (arena grid, color mixing).
 - `src/scenes/StartScene.ts`: the animated start screen.

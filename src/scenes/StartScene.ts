@@ -12,10 +12,29 @@ import {
 } from '../game/constants';
 import { applyHiResCamera } from '../game/hiRes';
 import { loadScores } from '../game/leaderboard';
-import { getXp, levelFor, nextLockedSkin, selectSkin, selectedSkin, unlockedSkins, xpForLevel } from '../game/progress';
-import { SKINS, skinColorAt, type Skin } from '../game/skins';
+import {
+  getLevel,
+  getXp,
+  nextUnlockLevel,
+  selectBody,
+  selectedBody,
+  selectedTrail,
+  selectTrail,
+  xpForLevel,
+} from '../game/progress';
+import { BODIES, TRAILS, bodyColorAt, trailColor, type Body, type Trail } from '../game/skins';
 import { isMuted, music, sfx, toggleMuted } from '../game/sound';
-import { addGlow, addTrailPiece, cssColor, drawBackdrop, drawGrid, mixColor, setGlowColor } from '../game/visuals';
+import {
+  closeIcon,
+  iconButton,
+  lockIcon,
+  lookIcon,
+  playIcon,
+  soundOffIcon,
+  soundOnIcon,
+  type IconButton,
+} from '../game/ui';
+import { addGlow, addTrailPiece, drawBackdrop, drawGrid, mixColor, setGlowColor } from '../game/visuals';
 
 const TITLE = 'ECHO RUNNER';
 const TITLE_SIZE = 104;
@@ -24,9 +43,16 @@ const TITLE_Y = 150;
 
 // The demo runs on a figure-eight in the middle of the screen
 const DEMO = { cx: ARENA.width / 2, cy: 425, ax: 430, by: 95 };
-const LOOK_Y = 557; // the look picker sits between the demo and the start prompt
 const GHOST_HOLD_MS = 3000; // all ghosts stay visible this long before the demo resets
 const GHOST_FADE_OUT_MS = 500;
+const BUTTON_Y = 605; // the row of round buttons: customize, play, sound
+
+// The locker (customize overlay)
+const TILE = 84; // tiles are big enough to hit with a thumb
+const TILE_STEP = 104;
+const BODY_ROW_Y = 335;
+const TRAIL_ROW_Y = 480;
+const PREVIEW = { cx: ARENA.width / 2, cy: 200, ax: 210, by: 32 };
 
 type TitleLetter = {
   main: Phaser.GameObjects.Text;
@@ -35,9 +61,17 @@ type TitleLetter = {
   index: number;
 };
 
-// A point on the figure-eight for lap angle t (radians)
-function pathPos(t: number) {
-  return { x: DEMO.cx + DEMO.ax * Math.sin(t), y: DEMO.cy + DEMO.by * Math.sin(2 * t) };
+type Tile = {
+  id: string;
+  level: number;
+  homeX: number;
+  box: Phaser.GameObjects.Graphics;
+  container: Phaser.GameObjects.Container;
+};
+
+// A point on a figure-eight for lap angle t (radians)
+function figureEight(p: { cx: number; cy: number; ax: number; by: number }, t: number) {
+  return { x: p.cx + p.ax * Math.sin(t), y: p.cy + p.by * Math.sin(2 * t) };
 }
 
 export class StartScene extends Phaser.Scene {
@@ -48,20 +82,29 @@ export class StartScene extends Phaser.Scene {
 
   private letters: TitleLetter[] = [];
   private subtitle!: Phaser.GameObjects.Text;
-  private prompt!: Phaser.GameObjects.Text;
-  // best score, level, look picker and controls: they fade in with the subtitle
-  private extras: (Phaser.GameObjects.Text | Phaser.GameObjects.Graphics)[] = [];
-  private soundButton!: Phaser.GameObjects.Text;
+  // Fade in right away (buttons must not appear late); the subtitle comes a little after the title
+  private quickFade: (Phaser.GameObjects.Text | Phaser.GameObjects.Graphics | Phaser.GameObjects.Container)[] = [];
 
-  private skin: Skin = SKINS[0];
-  private unlocked: Skin[] = [];
-  private lookName!: Phaser.GameObjects.Text;
+  private body: Body = BODIES[0];
+  private trail: Trail = TRAILS[0];
+  private trailPieces = 0;
 
   private runner!: Phaser.GameObjects.Rectangle;
   private runnerGlow!: Phaser.GameObjects.Image;
   private target!: Phaser.GameObjects.Rectangle;
   private targetRing!: Phaser.GameObjects.Rectangle;
   private ghosts: Phaser.GameObjects.Rectangle[] = [];
+
+  private playButton!: IconButton;
+  private lookButton!: IconButton;
+  private soundButton!: IconButton;
+
+  private locker: Phaser.GameObjects.Container | null = null;
+  private lockerRunner!: Phaser.GameObjects.Rectangle;
+  private lockerGlow!: Phaser.GameObjects.Image;
+  private lockerTimer = 0;
+  private bodyTiles: Tile[] = [];
+  private trailTiles: Tile[] = [];
 
   constructor() {
     super('StartScene');
@@ -74,8 +117,14 @@ export class StartScene extends Phaser.Scene {
     this.afterimageTimer = 0;
     this.started = false;
     this.letters = [];
-    this.extras = [];
+    this.quickFade = [];
     this.ghosts = [];
+    this.locker = null;
+    this.bodyTiles = [];
+    this.trailTiles = [];
+    this.body = selectedBody();
+    this.trail = selectedTrail();
+    this.trailPieces = 0;
 
     applyHiResCamera(this);
     this.cameras.main.fadeIn(300, 13, 15, 20); // matches the background color
@@ -84,9 +133,10 @@ export class StartScene extends Phaser.Scene {
 
     this.createDemo();
     this.createTitle();
-    this.createTexts();
-    this.createLookPicker();
+    this.createInfo();
+    this.createButtons();
     this.setupInput();
+    this.applyLook();
 
     // Exposed in dev mode only, for debugging in the browser console
     if (import.meta.env.DEV) {
@@ -102,14 +152,14 @@ export class StartScene extends Phaser.Scene {
     track.lineStyle(2, COLORS.wall, 0.9);
     track.beginPath();
     for (let i = 0; i <= 160; i++) {
-      const p = pathPos((i / 160) * Math.PI * 2);
+      const p = figureEight(DEMO, (i / 160) * Math.PI * 2);
       if (i === 0) track.moveTo(p.x, p.y);
       else track.lineTo(p.x, p.y);
     }
     track.strokePath();
 
     // The yellow target sits at the far right of the figure-eight, like the one in the game
-    const end = pathPos(Math.PI / 2);
+    const end = figureEight(DEMO, Math.PI / 2);
     addGlow(this, end.x, end.y, COLORS.target, 56).setDepth(0.5);
     this.targetRing = this.add
       .rectangle(end.x, end.y, TARGET_SIZE + 16, TARGET_SIZE + 16)
@@ -153,7 +203,8 @@ export class StartScene extends Phaser.Scene {
     });
   }
 
-  private createTexts() {
+  // Subtitle, then one row with the best score and the level bar
+  private createInfo() {
     const { width } = ARENA;
     const text = (x: number, y: number, s: string, size: number, color: string) =>
       this.add
@@ -163,17 +214,12 @@ export class StartScene extends Phaser.Scene {
         .setAlpha(0);
 
     this.subtitle = text(width / 2, 238, 'Every round you finish comes back to hunt you.', 26, COLORS.textMuted);
-    this.prompt = text(width / 2, 607, 'PRESS SPACE OR TAP TO START', 32, '#4fd1c5');
-    this.extras.push(
-      text(width / 2, 652, 'WASD / ARROWS  move     SHIFT  boost     P  pause     M  sound', 20, COLORS.textMuted),
-    );
 
-    // Best score and level, side by side: "BEST 12 rounds    LEVEL 4 [====    ]"
     const rowY = 284;
     const best = loadScores()[0];
     const xp = getXp();
-    const level = levelFor(xp);
-    const bestText = best ? text(0, rowY, `BEST  ${best.score} ${best.score === 1 ? 'round' : 'rounds'}`, 20, '#f6c344') : null;
+    const level = getLevel();
+    const bestText = best ? text(0, rowY, `BEST ${best.score}`, 20, '#f6c344') : null;
     const levelText = text(0, rowY, `LEVEL ${level}`, 20, COLORS.text);
     const barWidth = 120;
     const gap = 36;
@@ -189,109 +235,52 @@ export class StartScene extends Phaser.Scene {
     const bar = this.add.graphics().setDepth(5).setAlpha(0);
     bar.fillStyle(COLORS.wall, 1).fillRect(x, rowY - 3, barWidth, 6);
     bar.fillStyle(COLORS.player, 1).fillRect(x, rowY - 3, barWidth * progress, 6);
-    this.extras.push(...(bestText ? [bestText] : []), levelText, bar);
-
-    this.soundButton = this.add
-      .text(ARENA.width - ARENA.margin - 12, ARENA.height - ARENA.margin - 16, '', {
-        fontFamily: 'monospace',
-        fontSize: '20px',
-        color: COLORS.textMuted,
-      })
-      .setOrigin(1, 0.5)
-      .setDepth(5)
-      .setInteractive({ useHandCursor: true });
-    this.soundButton.on('pointerup', () => this.toggleSound());
-    this.updateSoundLabel();
+    this.quickFade.push(...(bestText ? [bestText] : []), levelText, bar);
   }
 
-  // "<  EMBER  >   NEXT LOOK AT LEVEL 6": arrows (keys or taps) cycle through the unlocked looks
-  private createLookPicker() {
-    this.unlocked = unlockedSkins();
-    this.skin = selectedSkin();
-    const canChoose = this.unlocked.length > 1;
-    const arrowStyle = { fontFamily: 'monospace', fontSize: '24px', fontStyle: 'bold', color: COLORS.text };
-    const left = this.add.text(0, LOOK_Y, '<', arrowStyle).setOrigin(0.5).setDepth(5).setAlpha(0);
-    const right = this.add.text(0, LOOK_Y, '>', arrowStyle).setOrigin(0.5).setDepth(5).setAlpha(0);
-    this.lookName = this.add
-      .text(0, LOOK_Y, '', { fontFamily: 'monospace', fontSize: '22px', fontStyle: 'bold', color: COLORS.text })
-      .setOrigin(0.5)
-      .setDepth(5)
-      .setAlpha(0);
-    const next = nextLockedSkin();
-    const hint = this.add
-      .text(0, LOOK_Y, next ? `NEXT LOOK AT LEVEL ${next.level}` : 'ALL LOOKS UNLOCKED', {
-        fontFamily: 'monospace',
-        fontSize: '20px',
-        color: COLORS.textMuted,
-      })
-      .setOrigin(0, 0.5)
-      .setDepth(5)
-      .setAlpha(0);
+  // Customize, a big PLAY, and sound. Small key letters under them for keyboard players.
+  private createButtons() {
+    const { width } = ARENA;
+    const side = 150;
+    this.lookButton = iconButton(this, width / 2 - side, BUTTON_Y, 38, lookIcon(COLORS.player, 'square', []), () => this.openLocker());
+    this.playButton = iconButton(this, width / 2, BUTTON_Y, 56, playIcon, () => this.start(), {
+      fill: COLORS.player,
+      ring: COLORS.player,
+      iconColor: COLORS.background,
+    });
+    this.soundButton = iconButton(this, width / 2 + side, BUTTON_Y, 38, isMuted() ? soundOffIcon : soundOnIcon, () => this.toggleSound());
+    this.quickFade.push(this.lookButton.container, this.playButton.container, this.soundButton.container);
 
-    // Fixed slot for the name so the arrows don't jump around as it changes
-    const slot = 180;
-    const total = 24 + slot + 24 + 34 + hint.width;
-    const x0 = ARENA.width / 2 - total / 2;
-    left.setX(x0 + 12);
-    this.lookName.setX(x0 + 24 + slot / 2);
-    right.setX(x0 + 24 + slot + 12);
-    hint.setX(x0 + 24 + slot + 24 + 34);
-
-    if (canChoose) {
-      for (const [arrow, dir] of [[left, -1], [right, 1]] as const) {
-        arrow.setPadding(16, 8).setInteractive({ useHandCursor: true });
-        arrow.on('pointerup', () => this.cycleLook(dir));
-      }
-    }
-    this.extras.push(this.lookName, hint);
-    if (canChoose) this.extras.push(left, right); // with a single look there is nothing to pick: no arrows
-    this.applyLook();
-  }
-
-  private cycleLook(dir: number) {
-    if (this.unlocked.length < 2) return;
-    const i = this.unlocked.findIndex((s) => s.id === this.skin.id);
-    this.skin = this.unlocked[(i + dir + this.unlocked.length) % this.unlocked.length];
-    selectSkin(this.skin.id);
-    sfx.pickup();
-    this.applyLook();
-  }
-
-  // Show the chosen look on its name and on the demo runner
-  private applyLook() {
-    const color = skinColorAt(this.skin, this.elapsed);
-    this.lookName.setText(this.skin.name).setColor(cssColor(color));
-    this.runner.setFillStyle(color);
-    setGlowColor(this.runnerGlow, color);
+    const keyHint = (x: number, s: string) =>
+      this.add
+        .text(x, BUTTON_Y + 56 + 22, s, { fontFamily: 'monospace', fontSize: '20px', color: COLORS.textMuted })
+        .setOrigin(0.5)
+        .setDepth(5)
+        .setAlpha(0);
+    this.quickFade.push(keyHint(width / 2 - side, 'C'), keyHint(width / 2, 'SPACE'), keyHint(width / 2 + side, 'M'));
+    this.quickFade.forEach((o) => o.setAlpha(0));
   }
 
   private setupInput() {
     const keyboard = this.input.keyboard!;
-    keyboard.on('keydown-LEFT', () => this.cycleLook(-1));
-    keyboard.on('keydown-A', () => this.cycleLook(-1));
-    keyboard.on('keydown-RIGHT', () => this.cycleLook(1));
-    keyboard.on('keydown-D', () => this.cycleLook(1));
-    keyboard.on('keydown-SPACE', () => this.start());
-    keyboard.on('keydown-ENTER', () => this.start());
+    keyboard.on('keydown-SPACE', () => (this.locker ? this.closeLocker() : this.start()));
+    keyboard.on('keydown-ENTER', () => (this.locker ? this.closeLocker() : this.start()));
+    keyboard.on('keydown-C', () => (this.locker ? this.closeLocker() : this.openLocker()));
     keyboard.on('keydown-M', () => this.toggleSound());
-
-    // Tap or click anywhere that is not a button
-    this.input.on('pointerup', (_p: Phaser.Input.Pointer, over: Phaser.GameObjects.GameObject[]) => {
-      if (over.length === 0) this.start();
-    });
-  }
-
-  private updateSoundLabel() {
-    this.soundButton.setText(isMuted() ? 'SOUND OFF [M]' : 'SOUND ON [M]');
+    // In the locker: left/right pick a body, up/down pick a trail
+    keyboard.on('keydown-LEFT', () => this.cycle('body', -1));
+    keyboard.on('keydown-RIGHT', () => this.cycle('body', 1));
+    keyboard.on('keydown-UP', () => this.cycle('trail', -1));
+    keyboard.on('keydown-DOWN', () => this.cycle('trail', 1));
   }
 
   private toggleSound() {
     if (!toggleMuted()) sfx.pickup(); // a blip confirms sound is back on
-    this.updateSoundLabel();
+    this.soundButton.setIcon(isMuted() ? soundOffIcon : soundOnIcon);
   }
 
   private start() {
-    if (this.started) return;
+    if (this.started || this.locker) return;
     this.started = true;
     // Inside a key press or tap, so this also unlocks audio for the browser
     sfx.start();
@@ -304,6 +293,196 @@ export class StartScene extends Phaser.Scene {
     });
   }
 
+  // ---------- Look ----------
+
+  // Show the chosen body and trail on the demo runner, the customize button and the locker
+  private applyLook() {
+    const color = bodyColorAt(this.body, this.elapsed);
+    this.runner.setFillStyle(color);
+    setGlowColor(this.runnerGlow, color);
+    const trailColors = [0, 1, 2].map((i) => trailColor(this.trail, color, i * 4));
+    this.lookButton.setIcon(lookIcon(color, this.trail.shape, trailColors));
+    if (this.locker) {
+      this.lockerRunner.setFillStyle(color);
+      setGlowColor(this.lockerGlow, color);
+      this.refreshTiles();
+    }
+  }
+
+  // ---------- Locker (customize overlay) ----------
+
+  private openLocker() {
+    if (this.locker || this.started) return;
+    const { width, height } = ARENA;
+    const layer = this.add.container(0, 0).setDepth(30);
+    this.locker = layer;
+
+    // Dim everything behind and swallow taps, then a panel
+    const dim = this.add.rectangle(width / 2, height / 2, width, height, COLORS.background, 0.86).setInteractive();
+    const panel = this.add.graphics();
+    panel.fillStyle(COLORS.panel, 0.97).fillRoundedRect(150, 60, width - 300, 600, 24);
+    panel.lineStyle(3, COLORS.panelRing, 1).strokeRoundedRect(150, 60, width - 300, 600, 24);
+    layer.add([dim, panel]);
+
+    // Live preview: a runner looping a small figure-eight in the chosen look
+    const track = this.add.graphics().lineStyle(2, COLORS.wall, 0.9);
+    track.beginPath();
+    for (let i = 0; i <= 120; i++) {
+      const p = figureEight(PREVIEW, (i / 120) * Math.PI * 2);
+      if (i === 0) track.moveTo(p.x, p.y);
+      else track.lineTo(p.x, p.y);
+    }
+    track.strokePath();
+    this.lockerGlow = addGlow(this, PREVIEW.cx, PREVIEW.cy, COLORS.player, 44);
+    this.lockerRunner = this.add.rectangle(PREVIEW.cx, PREVIEW.cy, PLAYER_SIZE, PLAYER_SIZE, COLORS.player);
+    layer.add([track, this.lockerGlow, this.lockerRunner]);
+
+    const close = iconButton(this, width - 200, 110, 30, closeIcon, () => this.closeLocker(), { depth: 0 });
+    layer.add(close.container);
+
+    // Two rows of tiles: bodies, then trails. Short row labels on the left.
+    const label = (y: number, s: string) =>
+      this.add.text(210, y, s, { fontFamily: 'monospace', fontSize: '20px', fontStyle: 'bold', color: COLORS.textMuted }).setOrigin(0, 0.5);
+    layer.add([label(BODY_ROW_Y, 'BODY'), label(TRAIL_ROW_Y, 'TRAIL')]);
+
+    const firstX = 360;
+    this.bodyTiles = BODIES.map((b, i) => this.makeTile(firstX + i * TILE_STEP, BODY_ROW_Y, b.id, b.level, () => this.pick('body', b.id)));
+    this.trailTiles = TRAILS.map((t, i) => this.makeTile(firstX + i * TILE_STEP, TRAIL_ROW_Y, t.id, t.level, () => this.pick('trail', t.id)));
+    layer.add([...this.bodyTiles, ...this.trailTiles].map((t) => t.container));
+
+    // Footer: level bar and what unlocks next
+    const level = getLevel();
+    const xp = getXp();
+    const progress = (xp - xpForLevel(level)) / (xpForLevel(level + 1) - xpForLevel(level));
+    const next = nextUnlockLevel();
+    const footer = this.add
+      .text(width / 2 - 20, 600, next ? `LEVEL ${level}   ·   NEXT UNLOCK AT ${next}` : `LEVEL ${level}   ·   ALL UNLOCKED`, {
+        fontFamily: 'monospace',
+        fontSize: '20px',
+        color: COLORS.textMuted,
+      })
+      .setOrigin(1, 0.5);
+    const bar = this.add.graphics();
+    bar.fillStyle(COLORS.wall, 1).fillRect(width / 2, 597, 200, 6);
+    bar.fillStyle(COLORS.player, 1).fillRect(width / 2, 597, 200 * progress, 6);
+    layer.add([footer, bar]);
+
+    layer.setAlpha(0);
+    this.tweens.add({ targets: layer, alpha: 1, duration: 150 });
+    this.applyLook();
+  }
+
+  private closeLocker() {
+    const layer = this.locker;
+    if (!layer) return;
+    this.locker = null;
+    this.tweens.add({ targets: layer, alpha: 0, duration: 120, onComplete: () => layer.destroy() });
+  }
+
+  private makeTile(x: number, y: number, id: string, level: number, onTap: () => void): Tile {
+    const box = this.add.graphics();
+    const container = this.add.container(x, y, [box]);
+    box.setInteractive({
+      hitArea: new Phaser.Geom.Rectangle(-TILE / 2, -TILE / 2, TILE, TILE),
+      hitAreaCallback: Phaser.Geom.Rectangle.Contains,
+      useHandCursor: true,
+    });
+    box.on('pointerdown', () => container.setScale(0.93));
+    box.on('pointerout', () => container.setScale(1));
+    box.on('pointerup', () => {
+      container.setScale(1);
+      onTap();
+    });
+    return { id, level, homeX: x, box, container };
+  }
+
+  // Redraw every tile: its item, a lock and level number if locked, and a ring if selected
+  private refreshTiles() {
+    const level = getLevel();
+    const bodyColor = bodyColorAt(this.body, this.elapsed);
+    const draw = (tile: Tile, selected: boolean, paint: (g: Phaser.GameObjects.Graphics) => void) => {
+      const g = tile.box;
+      const locked = tile.level > level;
+      g.clear();
+      g.fillStyle(COLORS.panelLight, 1).fillRoundedRect(-TILE / 2, -TILE / 2, TILE, TILE, 14);
+      if (selected) g.lineStyle(4, 0xffffff, 0.95).strokeRoundedRect(-TILE / 2, -TILE / 2, TILE, TILE, 14);
+      if (locked) lockIcon(g, 0, -6, 30, COLORS.panelRing);
+      else paint(g);
+      // Level number for locked items, as small text in the tile
+      const old = tile.container.getByName('lv') as Phaser.GameObjects.Text | null;
+      if (locked && !old) {
+        tile.container.add(
+          this.add
+            .text(0, 24, `LV ${tile.level}`, { fontFamily: 'monospace', fontSize: '18px', fontStyle: 'bold', color: COLORS.textMuted })
+            .setOrigin(0.5)
+            .setName('lv'),
+        );
+      }
+    };
+
+    for (const tile of this.bodyTiles) {
+      const b = BODIES.find((x) => x.id === tile.id)!;
+      draw(tile, b.id === this.body.id, (g) => {
+        const s = 34;
+        const c = b.aurora ? bodyColorAt(b, this.elapsed) : b.color;
+        g.fillStyle(c, 1).fillRect(-s / 2, -s / 2, s, s);
+      });
+    }
+    for (const tile of this.trailTiles) {
+      const t = TRAILS.find((x) => x.id === tile.id)!;
+      draw(tile, t.id === this.trail.id, (g) => {
+        // Four pieces of the trail, fading from left to right, in the current body color
+        for (let i = 0; i < 4; i++) {
+          const px = -27 + i * 18;
+          const c = trailColor(t, bodyColor, i * 4);
+          const a = 0.3 + i * 0.22;
+          g.fillStyle(c, a);
+          if (t.shape === 'dot') g.fillCircle(px, 0, 7);
+          else if (t.shape === 'spark') {
+            g.fillCircle(px - 3, -6 + (i % 2) * 10, 3);
+            g.fillCircle(px + 4, 5 - (i % 2) * 9, 2.5);
+          } else if (t.shape === 'diamond') {
+            g.fillPoints([new Phaser.Geom.Point(px, -9), new Phaser.Geom.Point(px + 9, 0), new Phaser.Geom.Point(px, 9), new Phaser.Geom.Point(px - 9, 0)], true);
+          } else g.fillRect(px - 7, -7, 14, 14);
+        }
+      });
+    }
+  }
+
+  private pick(kind: 'body' | 'trail', id: string) {
+    const level = getLevel();
+    const item = kind === 'body' ? BODIES.find((b) => b.id === id)! : TRAILS.find((t) => t.id === id)!;
+    const tiles = kind === 'body' ? this.bodyTiles : this.trailTiles;
+    if (item.level > level) {
+      // Locked: a little shake says "not yet"
+      const tile = tiles.find((t) => t.id === id)!;
+      this.tweens.killTweensOf(tile.container);
+      tile.container.x = tile.homeX; // repeated taps must not walk the tile sideways
+      this.tweens.add({ targets: tile.container, x: tile.homeX + 6, duration: 50, yoyo: true, repeat: 2 });
+      return;
+    }
+    if (kind === 'body') {
+      this.body = item as Body;
+      selectBody(id);
+    } else {
+      this.trail = item as Trail;
+      selectTrail(id);
+    }
+    sfx.pickup();
+    this.applyLook();
+  }
+
+  // Keyboard: step to the next unlocked body or trail (only while the locker is open)
+  private cycle(kind: 'body' | 'trail', dir: number) {
+    if (!this.locker) return;
+    const level = getLevel();
+    const list = (kind === 'body' ? BODIES : TRAILS).filter((i) => i.level <= level);
+    if (list.length < 2) return;
+    const current = kind === 'body' ? this.body.id : this.trail.id;
+    const i = list.findIndex((x) => x.id === current);
+    this.pick(kind, list[(i + dir + list.length) % list.length].id);
+  }
+
   // ---------- Animation ----------
 
   update(_time: number, delta: number) {
@@ -311,13 +490,13 @@ export class StartScene extends Phaser.Scene {
     this.updateTitle();
     this.updateDemo(delta);
 
-    const intro = Phaser.Math.Clamp((this.elapsed - 1300) / 500, 0, 1);
-    this.subtitle.setAlpha(intro);
-    this.extras.forEach((t) => t.setAlpha(intro));
+    // Buttons and the info row are there almost at once; the subtitle follows the title
+    const quick = Phaser.Math.Clamp((this.elapsed - 150) / 300, 0, 1);
+    this.quickFade.forEach((o) => o.setAlpha(quick));
+    this.subtitle.setAlpha(Phaser.Math.Clamp((this.elapsed - 1300) / 500, 0, 1));
 
-    // The start prompt fades in last, then breathes
-    const promptIn = Phaser.Math.Clamp((this.elapsed - 1800) / 500, 0, 1);
-    this.prompt.setAlpha(promptIn * (0.65 + 0.35 * Math.sin(this.elapsed / 350)));
+    if (this.body.aurora && bodyColorAt(this.body, this.elapsed) !== this.runner.fillColor) this.applyLook();
+    if (this.locker) this.updateLocker(delta);
   }
 
   // Letters drop in one after another and then ride a slow wave; the red echo trails each one
@@ -338,18 +517,15 @@ export class StartScene extends Phaser.Scene {
 
   private updateDemo(delta: number) {
     const lap = (this.elapsed / START_LAP_MS) * Math.PI * 2;
-    const runnerPos = pathPos(lap);
+    const runnerPos = figureEight(DEMO, lap);
     this.runner.setPosition(runnerPos.x, runnerPos.y);
     this.runnerGlow.setPosition(runnerPos.x, runnerPos.y);
-    if (this.skin.aurora && skinColorAt(this.skin, this.elapsed) !== this.runner.fillColor) this.applyLook();
 
-    // Fading afterimages behind the runner, in the chosen look's shape
+    // Fading trail behind the runner, in the chosen trail's shape
     this.afterimageTimer += delta;
     if (this.afterimageTimer >= 45) {
       this.afterimageTimer = 0;
-      const trail = addTrailPiece(this, runnerPos.x, runnerPos.y, PLAYER_SIZE, this.runner.fillColor, 0.4, this.skin.trail)
-        .setDepth(2);
-      this.tweens.add({ targets: trail, alpha: 0, duration: 300, onComplete: () => trail.destroy() });
+      this.spawnTrailPiece(runnerPos.x, runnerPos.y, 2, null);
     }
 
     this.target.setAngle(this.elapsed / 8);
@@ -361,7 +537,7 @@ export class StartScene extends Phaser.Scene {
     const phase = this.elapsed % cycle;
     this.ghosts.forEach((ghost, i) => {
       const revealAt = (i + 1) * START_GHOST_REVEAL_MS;
-      const p = pathPos(lap - (i + 1) * START_GHOST_LAG);
+      const p = figureEight(DEMO, lap - (i + 1) * START_GHOST_LAG);
       ghost.setPosition(p.x, p.y);
 
       let alpha = Phaser.Math.Clamp((phase - revealAt) / 300, 0, 1) * 0.85;
@@ -372,6 +548,26 @@ export class StartScene extends Phaser.Scene {
       if (this.lastPhase < revealAt && phase >= revealAt) this.spawnRing(p.x, p.y, ghost.fillColor);
     });
     this.lastPhase = phase;
+  }
+
+  // The locker's preview runner loops its own small figure-eight
+  private updateLocker(delta: number) {
+    const p = figureEight(PREVIEW, (this.elapsed / 3200) * Math.PI * 2);
+    this.lockerRunner.setPosition(p.x, p.y);
+    this.lockerGlow.setPosition(p.x, p.y);
+    this.lockerTimer += delta;
+    if (this.lockerTimer >= 40) {
+      this.lockerTimer = 0;
+      this.spawnTrailPiece(p.x, p.y, 0, this.locker);
+    }
+  }
+
+  private spawnTrailPiece(x: number, y: number, depth: number, into: Phaser.GameObjects.Container | null) {
+    const color = trailColor(this.trail, this.runner.fillColor, this.trailPieces++);
+    const piece = addTrailPiece(this, x, y, PLAYER_SIZE, color, 0.4, this.trail.shape).setDepth(depth);
+    // Locker pieces live inside the locker so they draw above its panel, just under the runner
+    if (into) into.addAt(piece, into.getIndex(this.lockerGlow));
+    this.tweens.add({ targets: piece, alpha: 0, duration: 300, onComplete: () => piece.destroy() });
   }
 
   private spawnRing(x: number, y: number, color: number) {

@@ -76,9 +76,14 @@ export function addTrailPiece(
   size: number,
   color: number,
   alpha: number,
-  shape: 'square' | 'dot' | 'diamond',
+  shape: 'square' | 'dot' | 'diamond' | 'spark',
 ): Phaser.GameObjects.Shape {
   if (shape === 'dot') return scene.add.circle(x, y, size * 0.4, color, alpha);
+  if (shape === 'spark') {
+    // A small speck scattered around the path: looks like sparks flying off (visual only)
+    const jitter = size * 0.45;
+    return scene.add.circle(x + (Math.random() - 0.5) * 2 * jitter, y + (Math.random() - 0.5) * 2 * jitter, size * 0.14, color, Math.min(1, alpha * 2));
+  }
   const piece = scene.add.rectangle(x, y, size, size, color, alpha);
   if (shape === 'diamond') piece.setAngle(45).setScale(0.75);
   return piece;

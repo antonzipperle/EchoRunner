@@ -144,6 +144,10 @@ export const SHAKE_INTENSITY = 0.004;
 export const COLORS = {
   background: 0x0d0f14,
   wall: 0x2a3040,
+  panel: 0x151a24, // menu buttons and panels
+  panelLight: 0x1f2636,
+  panelRing: 0x34405a,
+  icon: 0xe8ecf4, // same as text, as a number for drawn icons
   wallHot: 0x3b8f89,
   player: 0x4fd1c5,
   playerDead: 0xe05d6f,

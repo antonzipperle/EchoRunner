@@ -55,10 +55,20 @@ import {
 } from '../game/constants';
 import { applyHiResCamera } from '../game/hiRes';
 import { addGlow, addTrailPiece, cssColor, drawBackdrop, drawGrid, mixColor, setGlowColor } from '../game/visuals';
-import { addXp, runXp, selectedSkin, xpForLevel } from '../game/progress';
-import { SKINS, skinColorAt, type Skin } from '../game/skins';
+import { addXp, runXp, selectedBody, selectedTrail, xpForLevel } from '../game/progress';
+import { BODIES, TRAILS, bodyColorAt, trailColor, type Body, type Trail } from '../game/skins';
 import { Recording } from '../game/Recording';
 import { submitScore, type ScoreEntry } from '../game/leaderboard';
+import {
+  homeIcon,
+  iconButton,
+  pauseIcon,
+  playIcon,
+  restartIcon,
+  soundOffIcon,
+  soundOnIcon,
+  type IconButton,
+} from '../game/ui';
 import { isMuted, music, sfx, toggleMuted } from '../game/sound';
 
 type Ghost = {
@@ -91,7 +101,9 @@ export class GameScene extends Phaser.Scene {
   private wallGlow!: Phaser.GameObjects.Rectangle;
   private player!: Phaser.GameObjects.Rectangle;
   private playerGlow!: Phaser.GameObjects.Image;
-  private skin: Skin = SKINS[0]; // the look chosen on the start screen
+  private body: Body = BODIES[0]; // the look chosen on the start screen: body color...
+  private trail: Trail = TRAILS[0]; // ...and the trail it leaves
+  private trailPieces = 0; // counts trail pieces, so PRISM can step through its colors
   private lookMs = 0; // clock for looks that animate (aurora)
   private glowBaseScale = 1; // the player glow's resting scale
   private playerPop = 1; // extra scale after a grab, easing back to 1
@@ -133,7 +145,7 @@ export class GameScene extends Phaser.Scene {
   private isPaused = false;
   private leavingHome = false; // fading out to the start screen
   private pauseUi: Phaser.GameObjects.GameObject[] = [];
-  private soundButton!: Phaser.GameObjects.Text;
+  private soundButton: IconButton | null = null; // only exists while the pause menu is open
 
   constructor() {
     super('GameScene');
@@ -151,6 +163,7 @@ export class GameScene extends Phaser.Scene {
     this.isPaused = false;
     this.leavingHome = false;
     this.pauseUi = [];
+    this.soundButton = null;
     this.pickup = null;
     this.bonusTicks = 0;
     this.runStats = { closeCalls: 0, boosts: 0, pickups: 0, erased: 0 };
@@ -188,9 +201,11 @@ export class GameScene extends Phaser.Scene {
     this.target = this.add.rectangle(0, 0, TARGET_SIZE, TARGET_SIZE, COLORS.target).setDepth(1);
     this.tweens.add({ targets: this.target, angle: 360, duration: 3000, repeat: -1 });
 
-    this.skin = selectedSkin();
+    this.body = selectedBody();
+    this.trail = selectedTrail();
+    this.trailPieces = 0;
     this.lookMs = 0;
-    const lookColor = skinColorAt(this.skin, 0);
+    const lookColor = bodyColorAt(this.body, 0);
     this.playerGlow = addGlow(this, width / 2, height / 2, lookColor, 44).setDepth(2.5);
     this.glowBaseScale = this.playerGlow.scaleX;
     this.playerPop = 1;
@@ -219,7 +234,7 @@ export class GameScene extends Phaser.Scene {
     this.updateTimer();
 
     this.hintText = this.add
-      .text(width / 2, height - margin - 45, 'Grab the yellow square. Avoid your past.\nShift or BOOST = dash', {
+      .text(width / 2, height - margin - 45, 'Grab the yellow square. Avoid your past.\nMove: WASD, arrows or drag     Dash: Shift or BOOST', {
         align: 'center',
         fontFamily: 'monospace',
         fontSize: '20px',
@@ -268,7 +283,7 @@ export class GameScene extends Phaser.Scene {
     const prevY = this.player.y;
     this.movePlayer();
     this.playerGlow.setPosition(this.player.x, this.player.y);
-    if (this.skin.aurora) this.tintAurora();
+    if (this.body.aurora) this.tintAurora();
 
     // Light motion trail; boosting draws its own, denser one
     const moved = this.player.x !== prevX || this.player.y !== prevY;
@@ -463,14 +478,15 @@ export class GameScene extends Phaser.Scene {
 
   private afterimage(alpha: number) {
     const { x, y, fillColor } = this.player;
-    const piece = addTrailPiece(this, x, y, PLAYER_SIZE, fillColor, alpha, this.skin.trail).setDepth(2);
+    const color = trailColor(this.trail, fillColor, this.trailPieces++);
+    const piece = addTrailPiece(this, x, y, PLAYER_SIZE, color, alpha, this.trail.shape).setDepth(2);
     this.tweens.add({ targets: piece, alpha: 0, duration: 250, onComplete: () => piece.destroy() });
   }
 
   // The aurora look drifts through greens and blues as you play
   private tintAurora() {
     this.lookMs += TICK_MS;
-    const color = skinColorAt(this.skin, this.lookMs);
+    const color = bodyColorAt(this.body, this.lookMs);
     if (color === this.player.fillColor) return;
     this.player.setFillStyle(color);
     setGlowColor(this.playerGlow, color);
@@ -833,6 +849,7 @@ export class GameScene extends Phaser.Scene {
     keyboard.on('keydown-P', () => this.togglePause());
     keyboard.on('keydown-M', () => this.toggleMute());
     keyboard.on('keydown-H', () => this.goHome()); // only does something on the game-over and pause screens
+    keyboard.on('keydown-R', () => this.restartFromPause()); // only while paused
     // Shift, not Space: Space restarts after game over, and boost gets spammed near a death
     keyboard.on('keydown-SHIFT', () => this.tryBoost());
 
@@ -879,12 +896,8 @@ export class GameScene extends Phaser.Scene {
     const style = { fontFamily: 'monospace', fontSize: '20px', color: COLORS.textMuted };
     const y = margin + 24;
 
-    const pause = this.add
-      .text(width / 2 - 200, y, 'PAUSE [P]', style)
-      .setOrigin(0.5)
-      .setDepth(5)
-      .setInteractive({ useHandCursor: true });
-    pause.on('pointerup', () => this.togglePause());
+    // Pause is a round icon near the timer; sound lives in the pause menu now
+    iconButton(this, width - margin - 118, margin + 28, 24, pauseIcon, () => this.togglePause());
 
     this.boostButton = this.add
       .text(width / 2, y, 'BOOST [SHIFT]', style)
@@ -894,23 +907,11 @@ export class GameScene extends Phaser.Scene {
     this.boostButton.on('pointerdown', () => this.tryBoost()); // on press, not release, for snappy taps
     this.boostBar = this.add.graphics().setDepth(5);
     this.updateBoostUi();
-
-    this.soundButton = this.add
-      .text(width / 2 + 200, y, '', style)
-      .setOrigin(0.5)
-      .setDepth(5)
-      .setInteractive({ useHandCursor: true });
-    this.soundButton.on('pointerup', () => this.toggleMute());
-    this.updateSoundLabel();
-  }
-
-  private updateSoundLabel() {
-    this.soundButton.setText(isMuted() ? 'SOUND OFF [M]' : 'SOUND ON [M]');
   }
 
   private toggleMute() {
     if (!toggleMuted()) sfx.pickup(); // a blip confirms sound is back on
-    this.updateSoundLabel();
+    this.soundButton?.setIcon(isMuted() ? soundOffIcon : soundOnIcon);
   }
 
   private togglePause() {
@@ -920,6 +921,7 @@ export class GameScene extends Phaser.Scene {
     if (!this.isPaused) {
       this.pauseUi.forEach((o) => o.destroy());
       this.pauseUi = [];
+      this.soundButton = null;
       this.tweens.resumeAll();
       music.start();
       this.accumulator = 0; // no catch-up burst for the time spent paused
@@ -929,29 +931,54 @@ export class GameScene extends Phaser.Scene {
     this.tweens.pauseAll();
     music.stop();
     const { width, height } = ARENA;
+    // The dim layer swallows taps, so a stray touch can't steer the player while paused
     const dim = this.add
-      .rectangle(width / 2, height / 2, width, height, COLORS.background, 0.7)
+      .rectangle(width / 2, height / 2, width, height, COLORS.background, 0.78)
       .setDepth(20)
       .setInteractive();
-    dim.on('pointerup', () => this.togglePause()); // tap anywhere to resume
     const title = this.add
-      .text(width / 2, height / 2 - 20, 'PAUSED', {
-        fontFamily: 'monospace',
-        fontSize: '48px',
-        color: COLORS.text,
-      })
+      .text(width / 2, 190, 'PAUSED', { fontFamily: 'monospace', fontSize: '48px', fontStyle: 'bold', color: COLORS.text })
       .setOrigin(0.5)
       .setDepth(21);
-    const hint = this.add
-      .text(width / 2, height / 2 + 35, 'P or tap to resume', {
-        fontFamily: 'monospace',
-        fontSize: '20px',
-        color: COLORS.textMuted,
-      })
-      .setOrigin(0.5)
-      .setDepth(21);
-    const home = this.addHomeButton(height / 2 + 90, 21); // above the dim layer, so tapping it doesn't resume
-    this.pauseUi = [dim, title, hint, home];
+
+    // One big RESUME, then HOME / RESTART / SOUND underneath. Small key letters for keyboard players.
+    const resume = iconButton(this, width / 2, 320, 62, playIcon, () => this.togglePause(), {
+      fill: COLORS.player,
+      ring: COLORS.player,
+      iconColor: COLORS.background,
+      depth: 21,
+    });
+    const rowY = 470;
+    const gap = 130;
+    const home = iconButton(this, width / 2 - gap, rowY, 42, homeIcon, () => this.goHome(), { depth: 21 });
+    const restart = iconButton(this, width / 2, rowY, 42, restartIcon, () => this.restartFromPause(), { depth: 21 });
+    this.soundButton = iconButton(this, width / 2 + gap, rowY, 42, isMuted() ? soundOffIcon : soundOnIcon, () => this.toggleMute(), {
+      depth: 21,
+    });
+    const keyHint = (x: number, y: number, key: string) =>
+      this.add
+        .text(x, y, key, { fontFamily: 'monospace', fontSize: '20px', color: COLORS.textMuted })
+        .setOrigin(0.5)
+        .setDepth(21);
+    this.pauseUi = [
+      dim,
+      title,
+      resume.container,
+      home.container,
+      restart.container,
+      this.soundButton.container,
+      keyHint(width / 2, 320 + 62 + 24, 'P'),
+      keyHint(width / 2 - gap, rowY + 42 + 24, 'H'),
+      keyHint(width / 2, rowY + 42 + 24, 'R'),
+      keyHint(width / 2 + gap, rowY + 42 + 24, 'M'),
+    ];
+  }
+
+  // Restart from the pause menu: the run is abandoned (no XP, no score), like leaving to HOME
+  private restartFromPause() {
+    if (!this.isPaused || this.leavingHome) return;
+    sfx.start();
+    this.scene.restart();
   }
 
   private readInput(): Phaser.Math.Vector2 {
@@ -1104,12 +1131,18 @@ export class GameScene extends Phaser.Scene {
         .setOrigin(0, 0.5)
         .setDepth(13);
 
-    const xp = text(`+${res.gained} XP`, cssColor(this.skin.color), true);
+    const xp = text(`+${res.gained} XP`, cssColor(this.body.color), true);
     const level = levelUp
       ? text(`LEVEL UP! ${res.levelAfter}`, cssColor(COLORS.target), true)
       : text(`LEVEL ${res.levelAfter}`, COLORS.text, false);
-    const newest = res.unlocked[res.unlocked.length - 1];
-    const unlock = newest ? text(`NEW LOOK: ${newest.name}`, cssColor(newest.color), true) : null;
+    // "NEW BODY: EMBER" / "NEW TRAIL: DOTS", or a count when a big run unlocks several at once
+    const [first] = res.unlocked;
+    const unlock =
+      res.unlocked.length === 1
+        ? text(`NEW ${first.kind}: ${first.name}`, cssColor(first.color), true)
+        : res.unlocked.length > 1
+          ? text(`${res.unlocked.length} NEW ITEMS`, COLORS.text, true)
+          : null;
 
     // Lay the pieces out in one centered row: xp, level, bar, unlock
     const gap = 22;
@@ -1135,7 +1168,7 @@ export class GameScene extends Phaser.Scene {
     const draw = () => {
       bar.clear();
       bar.fillStyle(COLORS.wall, 1).fillRect(barX, y - barHeight / 2, barWidth, barHeight);
-      bar.fillStyle(this.skin.color, 1).fillRect(barX, y - barHeight / 2, barWidth * fill.p, barHeight);
+      bar.fillStyle(this.body.color, 1).fillRect(barX, y - barHeight / 2, barWidth * fill.p, barHeight);
     };
     draw();
     this.tweens.add({ targets: fill, p: to, duration: 700, ease: 'Cubic.easeOut', onUpdate: draw });
