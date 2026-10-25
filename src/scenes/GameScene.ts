@@ -51,7 +51,9 @@ import {
   WALL_SHIFT_ROUNDS,
 } from '../game/constants';
 import { applyHiResCamera } from '../game/hiRes';
-import { addGlow, cssColor, drawBackdrop, drawGrid, mixColor, setGlowColor } from '../game/visuals';
+import { addGlow, addTrailPiece, cssColor, drawBackdrop, drawGrid, mixColor, setGlowColor } from '../game/visuals';
+import { addXp, runXp, selectedSkin, xpForLevel } from '../game/progress';
+import { SKINS, skinColorAt, type Skin } from '../game/skins';
 import { Recording } from '../game/Recording';
 import { submitScore, type ScoreEntry } from '../game/leaderboard';
 import { isMuted, music, sfx, toggleMuted } from '../game/sound';
@@ -86,6 +88,8 @@ export class GameScene extends Phaser.Scene {
   private wallGlow!: Phaser.GameObjects.Rectangle;
   private player!: Phaser.GameObjects.Rectangle;
   private playerGlow!: Phaser.GameObjects.Image;
+  private skin: Skin = SKINS[0]; // the look chosen on the start screen
+  private lookMs = 0; // clock for looks that animate (aurora)
   private glowBaseScale = 1; // the player glow's resting scale
   private playerPop = 1; // extra scale after a grab, easing back to 1
   private target!: Phaser.GameObjects.Rectangle;
@@ -112,6 +116,9 @@ export class GameScene extends Phaser.Scene {
   private current = new Recording();
   private ghosts: Ghost[] = [];
 
+  // What happened this run, for the summary on the game-over screen
+  private runStats = { closeCalls: 0, boosts: 0, pickups: 0, erased: 0 };
+
   private pickup: Pickup | null = null;
   private bonusTicks = 0; // extra time from pickups, for this round only
 
@@ -120,6 +127,7 @@ export class GameScene extends Phaser.Scene {
   private score = 0;
   private isGameOver = false;
   private isPaused = false;
+  private leavingHome = false; // fading out to the start screen
   private pauseUi: Phaser.GameObjects.GameObject[] = [];
   private soundButton!: Phaser.GameObjects.Text;
 
@@ -137,9 +145,11 @@ export class GameScene extends Phaser.Scene {
     this.score = 0;
     this.isGameOver = false;
     this.isPaused = false;
+    this.leavingHome = false;
     this.pauseUi = [];
     this.pickup = null;
     this.bonusTicks = 0;
+    this.runStats = { closeCalls: 0, boosts: 0, pickups: 0, erased: 0 };
     this.touchStart = null;
     this.touchPointerId = null;
     this.touchDir.set(0, 0);
@@ -173,11 +183,14 @@ export class GameScene extends Phaser.Scene {
     this.target = this.add.rectangle(0, 0, TARGET_SIZE, TARGET_SIZE, COLORS.target).setDepth(1);
     this.tweens.add({ targets: this.target, angle: 360, duration: 3000, repeat: -1 });
 
-    this.playerGlow = addGlow(this, width / 2, height / 2, COLORS.player, 44).setDepth(2.5);
+    this.skin = selectedSkin();
+    this.lookMs = 0;
+    const lookColor = skinColorAt(this.skin, 0);
+    this.playerGlow = addGlow(this, width / 2, height / 2, lookColor, 44).setDepth(2.5);
     this.glowBaseScale = this.playerGlow.scaleX;
     this.playerPop = 1;
     this.player = this.add
-      .rectangle(width / 2, height / 2, PLAYER_SIZE, PLAYER_SIZE, COLORS.player)
+      .rectangle(width / 2, height / 2, PLAYER_SIZE, PLAYER_SIZE, lookColor)
       .setDepth(3);
 
     this.scoreText = this.add
@@ -250,6 +263,7 @@ export class GameScene extends Phaser.Scene {
     const prevY = this.player.y;
     this.movePlayer();
     this.playerGlow.setPosition(this.player.x, this.player.y);
+    if (this.skin.aurora) this.tintAurora();
 
     // Light motion trail; boosting draws its own, denser one
     const moved = this.player.x !== prevX || this.player.y !== prevY;
@@ -367,8 +381,9 @@ export class GameScene extends Phaser.Scene {
     if (this.isGameOver || this.isPaused || this.boostCooldown > 0) return;
     this.boostTicksLeft = BOOST_TICKS;
     this.boostCooldown = BOOST_COOLDOWN_TICKS;
+    this.runStats.boosts++;
     sfx.boost();
-    this.shockwave(this.player.x, this.player.y, COLORS.player, 40);
+    this.shockwave(this.player.x, this.player.y, this.player.fillColor, 40);
     this.updateBoostUi();
   }
 
@@ -427,15 +442,24 @@ export class GameScene extends Phaser.Scene {
 
   // Slipped right past a ghost and lived
   private closeCall() {
+    this.runStats.closeCalls++;
     this.shockwave(this.player.x, this.player.y, 0xffffff, 55);
     sfx.closeCall();
   }
 
   private afterimage(alpha: number) {
-    const ghost = this.add
-      .rectangle(this.player.x, this.player.y, PLAYER_SIZE, PLAYER_SIZE, COLORS.player, alpha)
-      .setDepth(2);
-    this.tweens.add({ targets: ghost, alpha: 0, duration: 250, onComplete: () => ghost.destroy() });
+    const { x, y, fillColor } = this.player;
+    const piece = addTrailPiece(this, x, y, PLAYER_SIZE, fillColor, alpha, this.skin.trail).setDepth(2);
+    this.tweens.add({ targets: piece, alpha: 0, duration: 250, onComplete: () => piece.destroy() });
+  }
+
+  // The aurora look drifts through greens and blues as you play
+  private tintAurora() {
+    this.lookMs += TICK_MS;
+    const color = skinColorAt(this.skin, this.lookMs);
+    if (color === this.player.fillColor) return;
+    this.player.setFillStyle(color);
+    setGlowColor(this.playerGlow, color);
   }
 
   private updateBoostUi() {
@@ -447,8 +471,8 @@ export class GameScene extends Phaser.Scene {
     const { x, y } = this.boostButton;
     const fill = 1 - this.boostCooldown / BOOST_COOLDOWN_TICKS;
     this.boostBar.clear();
-    this.boostBar.fillStyle(COLORS.wall, 1).fillRect(x - barWidth / 2, y + 14, barWidth, 3);
-    this.boostBar.fillStyle(COLORS.player, 1).fillRect(x - barWidth / 2, y + 14, barWidth * fill, 3);
+    this.boostBar.fillStyle(COLORS.wall, 1).fillRect(x - barWidth / 2, y + 16, barWidth, 3);
+    this.boostBar.fillStyle(COLORS.player, 1).fillRect(x - barWidth / 2, y + 16, barWidth * fill, 3);
   }
 
   private nextRound() {
@@ -538,9 +562,9 @@ export class GameScene extends Phaser.Scene {
     const glow = addGlow(this, 0, 0, color, PICKUP_RADIUS * 3.2);
     const icon = kind === 'time' ? this.drawClockIcon(color) : this.drawEraseIcon(color);
     const label = this.add
-      .text(0, -PICKUP_RADIUS - 16, kind === 'time' ? '+TIME' : 'ERASE', {
+      .text(0, -PICKUP_RADIUS - 18, kind === 'time' ? '+TIME' : 'ERASE', {
         fontFamily: 'monospace',
-        fontSize: '13px',
+        fontSize: '20px', // smallest size that stays readable when the game is shown at 800x450
         fontStyle: 'bold',
         color: cssColor(color),
       })
@@ -604,6 +628,7 @@ export class GameScene extends Phaser.Scene {
     const { x, y } = p;
     const color = p.kind === 'time' ? COLORS.pickupTime : COLORS.pickupEraser;
     this.clearPickup();
+    this.runStats.pickups++;
     this.burst(x, y, color);
     this.shockwave(x, y, color, 60);
     this.popPlayer();
@@ -635,6 +660,7 @@ export class GameScene extends Phaser.Scene {
       oldest.trail.destroy();
     }
     this.refreshGhostColors(); // the survivors are younger now
+    this.runStats.erased += count;
     return count;
   }
 
@@ -789,9 +815,10 @@ export class GameScene extends Phaser.Scene {
     this.wasd = keyboard.addKeys('W,A,S,D') as WasdKeys;
     this.joystick = this.add.graphics().setDepth(4);
 
+    // No Esc for pause: on CrazyGames (and most portals) Esc leaves fullscreen
     keyboard.on('keydown-P', () => this.togglePause());
-    keyboard.on('keydown-ESC', () => this.togglePause());
     keyboard.on('keydown-M', () => this.toggleMute());
+    keyboard.on('keydown-H', () => this.goHome()); // only does something on the game-over and pause screens
     // Shift, not Space: Space restarts after game over, and boost gets spammed near a death
     keyboard.on('keydown-SHIFT', () => this.tryBoost());
 
@@ -835,11 +862,11 @@ export class GameScene extends Phaser.Scene {
 
   private createButtons() {
     const { width, margin } = ARENA;
-    const style = { fontFamily: 'monospace', fontSize: '16px', color: COLORS.textMuted };
+    const style = { fontFamily: 'monospace', fontSize: '20px', color: COLORS.textMuted };
     const y = margin + 24;
 
     const pause = this.add
-      .text(width / 2 - 170, y, 'PAUSE [P]', style)
+      .text(width / 2 - 200, y, 'PAUSE [P]', style)
       .setOrigin(0.5)
       .setDepth(5)
       .setInteractive({ useHandCursor: true });
@@ -855,7 +882,7 @@ export class GameScene extends Phaser.Scene {
     this.updateBoostUi();
 
     this.soundButton = this.add
-      .text(width / 2 + 170, y, '', style)
+      .text(width / 2 + 200, y, '', style)
       .setOrigin(0.5)
       .setDepth(5)
       .setInteractive({ useHandCursor: true });
@@ -902,14 +929,15 @@ export class GameScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setDepth(21);
     const hint = this.add
-      .text(width / 2, height / 2 + 35, 'P, Esc or tap to resume', {
+      .text(width / 2, height / 2 + 35, 'P or tap to resume', {
         fontFamily: 'monospace',
         fontSize: '20px',
         color: COLORS.textMuted,
       })
       .setOrigin(0.5)
       .setDepth(21);
-    this.pauseUi = [dim, title, hint];
+    const home = this.addHomeButton(height / 2 + 90, 21); // above the dim layer, so tapping it doesn't resume
+    this.pauseUi = [dim, title, hint, home];
   }
 
   private readInput(): Phaser.Math.Vector2 {
@@ -930,6 +958,8 @@ export class GameScene extends Phaser.Scene {
 
   private gameOver(title = 'CAUGHT BY YOUR PAST', culprit?: Ghost) {
     this.isGameOver = true;
+    this.hintText?.destroy(); // a run can end before the first target; the hint would sit under HOME
+    this.hintText = undefined;
     this.player.setFillStyle(COLORS.playerDead);
     setGlowColor(this.playerGlow, COLORS.playerDead);
     this.cameras.main.shake(SHAKE_MS, SHAKE_INTENSITY);
@@ -959,7 +989,7 @@ export class GameScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setDepth(13);
 
-    this.add
+    const rounds = this.add
       .text(width / 2, 145, `Rounds survived: ${this.score}`, {
         fontFamily: 'monospace',
         fontSize: '26px',
@@ -968,7 +998,11 @@ export class GameScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setDepth(13);
 
-    this.showLeaderboard(submitScore(this.score));
+    this.showRunStats();
+    this.showXp();
+    const result = submitScore(this.score);
+    if (result.rank === 0) this.showNewBest(rounds);
+    this.showLeaderboard(result);
 
     const button = this.add
       .rectangle(width / 2, 540, 240, 64, COLORS.player)
@@ -990,11 +1024,12 @@ export class GameScene extends Phaser.Scene {
     this.add
       .text(width / 2, 600, 'or press Space', {
         fontFamily: 'monospace',
-        fontSize: '18px',
+        fontSize: '20px',
         color: COLORS.textMuted,
       })
       .setOrigin(0.5)
       .setDepth(13);
+    this.addHomeButton(642, 13);
 
     this.input.keyboard!.once('keydown-SPACE', () => this.restartGame());
   }
@@ -1004,10 +1039,120 @@ export class GameScene extends Phaser.Scene {
     this.scene.restart();
   }
 
+  // Back to the start screen (to change the look, for example). Only from game over or pause.
+  // Leaving from pause ends the run without XP or a score.
+  private goHome() {
+    if (this.leavingHome || !(this.isGameOver || this.isPaused)) return;
+    this.leavingHome = true;
+    const cam = this.cameras.main;
+    cam.fadeOut(200, 13, 15, 20); // matches the background color
+    cam.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => this.scene.start('StartScene'));
+  }
+
+  // Small secondary button under the main action, so Space / RESTART stay the fast path
+  private addHomeButton(y: number, depth: number): Phaser.GameObjects.Text {
+    const home = this.add
+      .text(ARENA.width / 2, y, 'HOME [H]', { fontFamily: 'monospace', fontSize: '20px', color: COLORS.text })
+      .setOrigin(0.5)
+      .setPadding(14, 8)
+      .setDepth(depth)
+      .setInteractive({ useHandCursor: true });
+    home.on('pointerover', () => home.setAlpha(0.7));
+    home.on('pointerout', () => home.setAlpha(1));
+    home.on('pointerup', () => this.goHome());
+    return home;
+  }
+
+  // One line of what happened this run. Information only: it never delays the restart.
+  private showRunStats() {
+    const { closeCalls, boosts, pickups, erased } = this.runStats;
+    const parts = [`Close calls ${closeCalls}`, `Boosts ${boosts}`, `Pickups ${pickups}`];
+    if (erased > 0) parts.push(`Ghosts erased ${erased}`);
+    this.add
+      .text(ARENA.width / 2, 182, parts.join('     '), {
+        fontFamily: 'monospace',
+        fontSize: '20px',
+        color: COLORS.text,
+      })
+      .setOrigin(0.5)
+      .setAlpha(0.85)
+      .setDepth(13);
+  }
+
+  // XP for this run, a level bar that fills up, and any look the run unlocked. One line, no waiting.
+  private showXp() {
+    const res = addXp(runXp({ rounds: this.score, closeCalls: this.runStats.closeCalls, pickups: this.runStats.pickups }));
+    const levelUp = res.levelAfter > res.levelBefore;
+    const y = 216;
+    const text = (s: string, color: string, bold: boolean) =>
+      this.add
+        .text(0, y, s, { fontFamily: 'monospace', fontSize: '20px', fontStyle: bold ? 'bold' : 'normal', color })
+        .setOrigin(0, 0.5)
+        .setDepth(13);
+
+    const xp = text(`+${res.gained} XP`, cssColor(this.skin.color), true);
+    const level = levelUp
+      ? text(`LEVEL UP! ${res.levelAfter}`, cssColor(COLORS.target), true)
+      : text(`LEVEL ${res.levelAfter}`, COLORS.text, false);
+    const newest = res.unlocked[res.unlocked.length - 1];
+    const unlock = newest ? text(`NEW LOOK: ${newest.name}`, cssColor(newest.color), true) : null;
+
+    // Lay the pieces out in one centered row: xp, level, bar, unlock
+    const gap = 22;
+    const barWidth = 160;
+    const barHeight = 8;
+    const total = xp.width + level.width + barWidth + (unlock ? unlock.width + gap : 0) + gap * 2;
+    let x = ARENA.width / 2 - total / 2;
+    xp.setX(x);
+    x += xp.width + gap;
+    level.setX(x);
+    x += level.width + gap;
+    const barX = x;
+    x += barWidth + gap;
+    unlock?.setX(x);
+
+    // The bar shows progress through the current level, filling up from where it was
+    const start = xpForLevel(res.levelAfter);
+    const span = xpForLevel(res.levelAfter + 1) - start;
+    const from = levelUp ? 0 : (res.xpBefore - start) / span;
+    const to = (res.xpAfter - start) / span;
+    const bar = this.add.graphics().setDepth(13);
+    const fill = { p: from };
+    const draw = () => {
+      bar.clear();
+      bar.fillStyle(COLORS.wall, 1).fillRect(barX, y - barHeight / 2, barWidth, barHeight);
+      bar.fillStyle(this.skin.color, 1).fillRect(barX, y - barHeight / 2, barWidth * fill.p, barHeight);
+    };
+    draw();
+    this.tweens.add({ targets: fill, p: to, duration: 700, ease: 'Cubic.easeOut', onUpdate: draw });
+
+    for (const badge of [levelUp ? level : null, unlock]) {
+      if (!badge) continue;
+      badge.setScale(0);
+      this.tweens.add({ targets: badge, scale: 1, duration: 320, ease: 'Back.easeOut' });
+    }
+  }
+
+  // A badge that pops in beside the round count when this run tops the board
+  private showNewBest(rounds: Phaser.GameObjects.Text) {
+    const badge = this.add
+      .text(rounds.x + rounds.width / 2 + 18, rounds.y, 'NEW BEST!', {
+        fontFamily: 'monospace',
+        fontSize: '26px',
+        fontStyle: 'bold',
+        color: cssColor(COLORS.target),
+      })
+      .setOrigin(0, 0.5)
+      .setDepth(13)
+      .setScale(0);
+    this.tweens.add({ targets: badge, scale: 1, duration: 320, ease: 'Back.easeOut' });
+    this.tweens.add({ targets: badge, alpha: 0.6, duration: 600, yoyo: true, repeat: -1, delay: 320 });
+  }
+
   private showLeaderboard({ entries, rank }: { entries: ScoreEntry[]; rank: number }) {
     const { width } = ARENA;
-    const top = 200;
-    const rowHeight = 26;
+    const top = 250; // below the rounds, the run stats and the XP line
+    const rowHeight = 24;
 
     if (entries.length === 0) {
       this.add

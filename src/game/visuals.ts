@@ -68,6 +68,22 @@ export function setGlowColor(glow: Phaser.GameObjects.Image, color: number) {
   glow.setTexture(glowTexture(glow.scene, color)); // same texture size, so the glow keeps its scale
 }
 
+// One fading piece of a player trail, in the look's shape
+export function addTrailPiece(
+  scene: Phaser.Scene,
+  x: number,
+  y: number,
+  size: number,
+  color: number,
+  alpha: number,
+  shape: 'square' | 'dot' | 'diamond',
+): Phaser.GameObjects.Shape {
+  if (shape === 'dot') return scene.add.circle(x, y, size * 0.4, color, alpha);
+  const piece = scene.add.rectangle(x, y, size, size, color, alpha);
+  if (shape === 'diamond') piece.setAngle(45).setScale(0.75);
+  return piece;
+}
+
 // t from 0 (all `from`) to 1 (all `to`)
 export function mixColor(from: number, to: number, t: number): number {
   const { ValueToColor, Interpolate, GetColor } = Phaser.Display.Color;

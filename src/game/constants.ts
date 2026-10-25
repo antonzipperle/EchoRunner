@@ -116,6 +116,11 @@ export const START_GHOST_REVEAL_MS = 1500; // a new ghost appears this often
 // Touch controls: drag at least this many pixels from where the finger went down to move.
 export const TOUCH_DEADZONE = 12;
 
+// XP earned per run; levels unlock player looks (see src/game/progress.ts and skins.ts).
+export const XP_PER_ROUND = 10;
+export const XP_PER_CLOSE_CALL = 5;
+export const XP_PER_PICKUP = 5;
+
 // How many scores the local leaderboard keeps.
 export const LEADERBOARD_SIZE = 10;
 

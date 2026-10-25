@@ -13,6 +13,14 @@
         background: #0d0f14;
         overflow: hidden;
       }
+      /* Stop long taps from selecting text or popping up magnifiers on mobile (CrazyGames asks for this) */
+      body {
+        -webkit-user-select: none;
+        -moz-user-select: none;
+        -ms-user-select: none;
+        user-select: none;
+        -webkit-touch-callout: none;
+      }
       #game {
         width: 100%;
         height: 100%;

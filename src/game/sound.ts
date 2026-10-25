@@ -6,24 +6,27 @@ let ctx: AudioContext | null = null;
 // Browsers only let audio start from inside a real tap or key press. Phaser runs its key and
 // pointer callbacks later, in its game loop, and Safari does not count that as a user gesture,
 // so the audio would stay silent there. Unlock it straight from the DOM events instead.
-const UNLOCK_EVENTS = ['pointerdown', 'keydown', 'touchend'];
+// The listeners stay for good: iOS can interrupt audio at any time (a call, the app going to the
+// background), and it can only be resumed inside a later tap.
+const UNLOCK_EVENTS = ['pointerdown', 'keydown', 'touchend', 'click'];
 
 function unlockAudio() {
   const audio = getContext();
-  if (!audio) return;
+  if (!audio || audio.state === 'running') return;
   // Play one silent sample: iOS Safari only unlocks once something has actually played
   const silence = audio.createBufferSource();
   silence.buffer = audio.createBuffer(1, 1, audio.sampleRate);
   silence.connect(audio.destination);
   silence.start();
-  void audio.resume().then(() => {
-    if (audio.state === 'running') {
-      UNLOCK_EVENTS.forEach((e) => window.removeEventListener(e, unlockAudio, true));
-    }
-  });
+  void audio.resume();
 }
 
 UNLOCK_EVENTS.forEach((e) => window.addEventListener(e, unlockAudio, true));
+
+// iPhones mute Web Audio while the side switch is on silent, unlike video and music apps.
+// Asking for a "playback" audio session (Safari 16.4+) makes the game play like media instead.
+const audioSession = (navigator as Navigator & { audioSession?: { type: string } }).audioSession;
+if (audioSession) audioSession.type = 'playback';
 
 // Mute is remembered between visits
 const MUTE_KEY = 'echo-runner-muted';
@@ -60,7 +63,8 @@ function getContext(): AudioContext | null {
       return null; // no Web Audio support: stay silent
     }
   }
-  if (ctx.state === 'suspended') void ctx.resume();
+  // 'suspended' everywhere, or 'interrupted' on iOS after a call or a trip to the background
+  if (ctx.state !== 'running' && ctx.state !== 'closed') void ctx.resume();
   return ctx;
 }
 

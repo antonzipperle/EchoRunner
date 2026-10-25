@@ -1,4 +1,5 @@
 node_modules/
 dist/
+echo-runner-crazygames.zip
 .DS_Store
 *.log

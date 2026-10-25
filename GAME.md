@@ -63,8 +63,22 @@ Single-screen arena game, Phaser 3 + TypeScript + Vite.
 21. [done] Reactive feel, kept subtle: a near ghost pops when it lights up and its outline brightens as it closes in,
     the player's glow swells with the danger, slipping past within 36 px gives a close-call ring and chime, the player
     stretches as it moves and pops on a grab, shockwave rings on collects and boosts, and the timer beats in the last 1.5 s.
+22. [done] CrazyGames Basic Launch readiness: all text is at least 20px so it stays readable at 800x450,
+    audio resumes on any later tap if iOS interrupts it, Esc no longer pauses (it leaves fullscreen on CrazyGames;
+    P, the PAUSE button and auto-pause on focus loss remain), and the page disables text selection on mobile.
+    `npm run build` and zip the contents of `dist/` (index.html at the zip root) to upload.
+23. [done] Run summary on the game-over screen: one line with close calls, boosts, pickups and ghosts erased,
+    and a "NEW BEST!" badge when the run tops the board. Information only: restart stays instant (Space or button).
+24. [done] Unlockable looks: every run earns XP (10 per round, 5 per close call, 5 per pickup); levels unlock
+    8 player looks (color + trail shape: squares, dots or diamonds; AURORA drifts through greens and blues).
+    The game-over screen shows the XP, a filling level bar, LEVEL UP and NEW LOOK. The start screen shows the level
+    and a look picker (arrows / A-D / tap < >) previewed on the demo runner. Saved in localStorage.
+25. [done] Back to the start screen: a small HOME [H] button on the game-over screen (under RESTART, which stays the
+    fast path along with Space) and on the pause screen. Leaving from pause ends the run without XP or a score.
 
 ## Later (ideas parked, not started)
+- CrazyGames Full Launch (only if they select the game): CrazyGames SDK, gameplay start/stop events,
+  pause and mute during ads, save the leaderboard and mute through the SDK Data module.
 - More pickups: freeze (ghosts hold still for 1.5 s) and a rare shield that absorbs one hit.
 - Replay of the final round in slow motion on the game-over screen.
 - Daily seed (same targets for everyone) and a copy-to-clipboard score card.
@@ -74,6 +88,7 @@ Single-screen arena game, Phaser 3 + TypeScript + Vite.
 - `src/game/Recording.ts`: one round of positions, one per tick.
 - `src/game/sound.ts`: Web Audio sound effects (`sfx.*`), the background music loop (`music.start()/stop()`) and the mute switch.
 - `src/game/leaderboard.ts`: local top-10 scores in localStorage.
+- `src/game/progress.ts`: XP, levels and the chosen look (localStorage). `src/game/skins.ts`: the list of looks.
 - `src/game/hiRes.ts`: sharp rendering (2x canvas, camera zoom, 2x text). Every scene calls `applyHiResCamera(this)`.
 - `src/game/visuals.ts`: shared drawing helpers (arena grid, color mixing).
 - `src/scenes/StartScene.ts`: the animated start screen.

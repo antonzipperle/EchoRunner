@@ -12,8 +12,10 @@ import {
 } from '../game/constants';
 import { applyHiResCamera } from '../game/hiRes';
 import { loadScores } from '../game/leaderboard';
+import { getXp, levelFor, nextLockedSkin, selectSkin, selectedSkin, unlockedSkins, xpForLevel } from '../game/progress';
+import { SKINS, skinColorAt, type Skin } from '../game/skins';
 import { isMuted, music, sfx, toggleMuted } from '../game/sound';
-import { addGlow, drawBackdrop, drawGrid, mixColor } from '../game/visuals';
+import { addGlow, addTrailPiece, cssColor, drawBackdrop, drawGrid, mixColor, setGlowColor } from '../game/visuals';
 
 const TITLE = 'ECHO RUNNER';
 const TITLE_SIZE = 104;
@@ -21,7 +23,8 @@ const LETTER_STEP = 72; // horizontal distance between letters
 const TITLE_Y = 150;
 
 // The demo runs on a figure-eight in the middle of the screen
-const DEMO = { cx: ARENA.width / 2, cy: 435, ax: 430, by: 95 };
+const DEMO = { cx: ARENA.width / 2, cy: 425, ax: 430, by: 95 };
+const LOOK_Y = 557; // the look picker sits between the demo and the start prompt
 const GHOST_HOLD_MS = 3000; // all ghosts stay visible this long before the demo resets
 const GHOST_FADE_OUT_MS = 500;
 
@@ -46,8 +49,13 @@ export class StartScene extends Phaser.Scene {
   private letters: TitleLetter[] = [];
   private subtitle!: Phaser.GameObjects.Text;
   private prompt!: Phaser.GameObjects.Text;
-  private extras: Phaser.GameObjects.Text[] = []; // best score and controls, fade in with the subtitle
+  // best score, level, look picker and controls: they fade in with the subtitle
+  private extras: (Phaser.GameObjects.Text | Phaser.GameObjects.Graphics)[] = [];
   private soundButton!: Phaser.GameObjects.Text;
+
+  private skin: Skin = SKINS[0];
+  private unlocked: Skin[] = [];
+  private lookName!: Phaser.GameObjects.Text;
 
   private runner!: Phaser.GameObjects.Rectangle;
   private runnerGlow!: Phaser.GameObjects.Image;
@@ -77,6 +85,7 @@ export class StartScene extends Phaser.Scene {
     this.createDemo();
     this.createTitle();
     this.createTexts();
+    this.createLookPicker();
     this.setupInput();
 
     // Exposed in dev mode only, for debugging in the browser console
@@ -153,21 +162,39 @@ export class StartScene extends Phaser.Scene {
         .setDepth(5)
         .setAlpha(0);
 
-    this.subtitle = text(width / 2, 245, 'Every round you finish comes back to hunt you.', 26, COLORS.textMuted);
-    this.prompt = text(width / 2, 600, 'PRESS SPACE OR TAP TO START', 32, '#4fd1c5');
+    this.subtitle = text(width / 2, 238, 'Every round you finish comes back to hunt you.', 26, COLORS.textMuted);
+    this.prompt = text(width / 2, 607, 'PRESS SPACE OR TAP TO START', 32, '#4fd1c5');
     this.extras.push(
-      text(width / 2, 650, 'WASD / ARROWS  move     SHIFT  boost     P  pause     M  sound', 18, COLORS.textMuted),
+      text(width / 2, 652, 'WASD / ARROWS  move     SHIFT  boost     P  pause     M  sound', 20, COLORS.textMuted),
     );
 
+    // Best score and level, side by side: "BEST 12 rounds    LEVEL 4 [====    ]"
+    const rowY = 284;
     const best = loadScores()[0];
-    if (best) {
-      this.extras.push(text(width / 2, 292, `BEST  ${best.score} ${best.score === 1 ? 'round' : 'rounds'}`, 20, '#f6c344'));
+    const xp = getXp();
+    const level = levelFor(xp);
+    const bestText = best ? text(0, rowY, `BEST  ${best.score} ${best.score === 1 ? 'round' : 'rounds'}`, 20, '#f6c344') : null;
+    const levelText = text(0, rowY, `LEVEL ${level}`, 20, COLORS.text);
+    const barWidth = 120;
+    const gap = 36;
+    const total = (bestText ? bestText.width + gap : 0) + levelText.width + 14 + barWidth;
+    let x = width / 2 - total / 2;
+    if (bestText) {
+      bestText.setOrigin(0, 0.5).setX(x);
+      x += bestText.width + gap;
     }
+    levelText.setOrigin(0, 0.5).setX(x);
+    x += levelText.width + 14;
+    const progress = (xp - xpForLevel(level)) / (xpForLevel(level + 1) - xpForLevel(level));
+    const bar = this.add.graphics().setDepth(5).setAlpha(0);
+    bar.fillStyle(COLORS.wall, 1).fillRect(x, rowY - 3, barWidth, 6);
+    bar.fillStyle(COLORS.player, 1).fillRect(x, rowY - 3, barWidth * progress, 6);
+    this.extras.push(...(bestText ? [bestText] : []), levelText, bar);
 
     this.soundButton = this.add
-      .text(ARENA.width - ARENA.margin - 12, ARENA.height - ARENA.margin - 14, '', {
+      .text(ARENA.width - ARENA.margin - 12, ARENA.height - ARENA.margin - 16, '', {
         fontFamily: 'monospace',
-        fontSize: '16px',
+        fontSize: '20px',
         color: COLORS.textMuted,
       })
       .setOrigin(1, 0.5)
@@ -177,8 +204,73 @@ export class StartScene extends Phaser.Scene {
     this.updateSoundLabel();
   }
 
+  // "<  EMBER  >   NEXT LOOK AT LEVEL 6": arrows (keys or taps) cycle through the unlocked looks
+  private createLookPicker() {
+    this.unlocked = unlockedSkins();
+    this.skin = selectedSkin();
+    const canChoose = this.unlocked.length > 1;
+    const arrowStyle = { fontFamily: 'monospace', fontSize: '24px', fontStyle: 'bold', color: COLORS.text };
+    const left = this.add.text(0, LOOK_Y, '<', arrowStyle).setOrigin(0.5).setDepth(5).setAlpha(0);
+    const right = this.add.text(0, LOOK_Y, '>', arrowStyle).setOrigin(0.5).setDepth(5).setAlpha(0);
+    this.lookName = this.add
+      .text(0, LOOK_Y, '', { fontFamily: 'monospace', fontSize: '22px', fontStyle: 'bold', color: COLORS.text })
+      .setOrigin(0.5)
+      .setDepth(5)
+      .setAlpha(0);
+    const next = nextLockedSkin();
+    const hint = this.add
+      .text(0, LOOK_Y, next ? `NEXT LOOK AT LEVEL ${next.level}` : 'ALL LOOKS UNLOCKED', {
+        fontFamily: 'monospace',
+        fontSize: '20px',
+        color: COLORS.textMuted,
+      })
+      .setOrigin(0, 0.5)
+      .setDepth(5)
+      .setAlpha(0);
+
+    // Fixed slot for the name so the arrows don't jump around as it changes
+    const slot = 180;
+    const total = 24 + slot + 24 + 34 + hint.width;
+    const x0 = ARENA.width / 2 - total / 2;
+    left.setX(x0 + 12);
+    this.lookName.setX(x0 + 24 + slot / 2);
+    right.setX(x0 + 24 + slot + 12);
+    hint.setX(x0 + 24 + slot + 24 + 34);
+
+    if (canChoose) {
+      for (const [arrow, dir] of [[left, -1], [right, 1]] as const) {
+        arrow.setPadding(16, 8).setInteractive({ useHandCursor: true });
+        arrow.on('pointerup', () => this.cycleLook(dir));
+      }
+    }
+    this.extras.push(this.lookName, hint);
+    if (canChoose) this.extras.push(left, right); // with a single look there is nothing to pick: no arrows
+    this.applyLook();
+  }
+
+  private cycleLook(dir: number) {
+    if (this.unlocked.length < 2) return;
+    const i = this.unlocked.findIndex((s) => s.id === this.skin.id);
+    this.skin = this.unlocked[(i + dir + this.unlocked.length) % this.unlocked.length];
+    selectSkin(this.skin.id);
+    sfx.pickup();
+    this.applyLook();
+  }
+
+  // Show the chosen look on its name and on the demo runner
+  private applyLook() {
+    const color = skinColorAt(this.skin, this.elapsed);
+    this.lookName.setText(this.skin.name).setColor(cssColor(color));
+    this.runner.setFillStyle(color);
+    setGlowColor(this.runnerGlow, color);
+  }
+
   private setupInput() {
     const keyboard = this.input.keyboard!;
+    keyboard.on('keydown-LEFT', () => this.cycleLook(-1));
+    keyboard.on('keydown-A', () => this.cycleLook(-1));
+    keyboard.on('keydown-RIGHT', () => this.cycleLook(1));
+    keyboard.on('keydown-D', () => this.cycleLook(1));
     keyboard.on('keydown-SPACE', () => this.start());
     keyboard.on('keydown-ENTER', () => this.start());
     keyboard.on('keydown-M', () => this.toggleSound());
@@ -249,13 +341,13 @@ export class StartScene extends Phaser.Scene {
     const runnerPos = pathPos(lap);
     this.runner.setPosition(runnerPos.x, runnerPos.y);
     this.runnerGlow.setPosition(runnerPos.x, runnerPos.y);
+    if (this.skin.aurora && skinColorAt(this.skin, this.elapsed) !== this.runner.fillColor) this.applyLook();
 
-    // Fading afterimages behind the runner
+    // Fading afterimages behind the runner, in the chosen look's shape
     this.afterimageTimer += delta;
     if (this.afterimageTimer >= 45) {
       this.afterimageTimer = 0;
-      const trail = this.add
-        .rectangle(runnerPos.x, runnerPos.y, PLAYER_SIZE, PLAYER_SIZE, COLORS.player, 0.4)
+      const trail = addTrailPiece(this, runnerPos.x, runnerPos.y, PLAYER_SIZE, this.runner.fillColor, 0.4, this.skin.trail)
         .setDepth(2);
       this.tweens.add({ targets: trail, alpha: 0, duration: 300, onComplete: () => trail.destroy() });
     }
