@@ -16,6 +16,7 @@ import {
   GHOST_AGE_FADE_ROUNDS,
   GHOST_HITBOX_SCALE,
   GHOST_TRAIL_ALPHA,
+  GHOST_TRAIL_STEP,
   GHOST_TRAIL_WIDTH,
   JOYSTICK_RADIUS,
   MUSIC_LAYER_ROUNDS,
@@ -910,14 +911,16 @@ export class GameScene extends Phaser.Scene {
   }
 
   // Redrawn each round when ghost colors change. A finished recording never changes.
+  // WebGL rebuilds every line of a Graphics each frame, so the trail uses every few ticks of the
+  // recording: at 5 px per tick that still looks smooth, and it is a fraction of the work with many ghosts.
   private drawTrail(trail: Phaser.GameObjects.Graphics, recording: Recording, color: number) {
     const start = recording.at(0);
     trail.clear();
     trail.lineStyle(GHOST_TRAIL_WIDTH, color, GHOST_TRAIL_ALPHA);
     trail.beginPath();
     trail.moveTo(start.x, start.y);
-    for (let i = 1; i < recording.length; i++) {
-      const p = recording.at(i);
+    for (let i = GHOST_TRAIL_STEP; i < recording.length + GHOST_TRAIL_STEP - 1; i += GHOST_TRAIL_STEP) {
+      const p = recording.at(i); // past the end this is the last point, so the trail always ends where the ghost parks
       trail.lineTo(p.x, p.y);
     }
     trail.strokePath();

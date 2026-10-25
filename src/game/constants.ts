@@ -51,6 +51,7 @@ export const GHOST_HITBOX_SCALE = 0.75;
 // Faint line showing each ghost's whole path, so you can read where it will go.
 export const GHOST_TRAIL_ALPHA = 0.25;
 export const GHOST_TRAIL_WIDTH = 2;
+export const GHOST_TRAIL_STEP = 3; // draw the trail through every 3rd recorded point (see drawTrail)
 
 // Ghosts shift from COLORS.ghost (newest) to COLORS.ghostOld over this many rounds of age.
 export const GHOST_AGE_FADE_ROUNDS = 8;
