@@ -111,6 +111,10 @@ export const TARGET_MIN_DIST_FROM_GHOST_END = 80;
 export const NEAR_MISS_DIST = 70;
 // Slipping past a ghost closer than this (and surviving) counts as a close call: a ring and a chime.
 export const CLOSE_CALL_DIST = 36;
+// Close calls within this window of the last one chain into a combo. Each link is worth
+// XP_PER_CLOSE_CALL times its place in the chain, up to COMBO_MAX times.
+export const COMBO_WINDOW_TICKS = 150; // 2.5 s
+export const COMBO_MAX = 5;
 
 // Game feel: the player stretches a little in the direction it moves (more when boosting)
 // and pops bigger for a moment when it grabs something. Both ease back on their own.
@@ -141,6 +145,8 @@ export const LEADERBOARD_SIZE = 10;
 export const SFX_VOLUME = 0.15;
 // Background music volume (0 to 1). Kept well under the effects so it stays in the background.
 export const MUSIC_VOLUME = 0.05;
+// The music adds a layer at each of these round counts: hi-hat, then a second melody, then a kick
+export const MUSIC_LAYER_ROUNDS = [4, 8, 12];
 
 // Camera shake on game over. Intensity is a fraction of the screen size.
 export const SHAKE_MS = 120;

@@ -91,6 +91,11 @@ Single-screen arena game, Phaser 3 + TypeScript + Vite.
 30. [done] Mobile polish: a big round BOOST button under the right thumb on touch screens (fires on touch-down,
     recharge ring), multi-touch turned on so one thumb steers while the other boosts, BOOST in the HUD is a round
     icon with the same ring, and all text uses one font list (FONT) so Safari no longer falls back to Courier.
+31. [done] Close-call combo: close calls within 2.5 s of the last one chain. Each link pays XP_PER_CLOSE_CALL times
+    its place in the chain (up to x5), with a bigger ring, a chime that climbs, a popping "x3" over the player and a
+    draining combo badge under the score. The best combo of the run shows on the game-over screen.
+32. [done] Music that grows with the run: a soft hi-hat joins at round 4, a second melody at 8, a low kick at 12,
+    and the filter opens a little at each step. It drops back to the calm loop on death and on the home screen.
 
 ## Later (ideas parked, not started)
 - CrazyGames Full Launch (only if they select the game): CrazyGames SDK, gameplay start/stop events,

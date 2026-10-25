@@ -162,6 +162,16 @@ export const erasedIcon: IconDrawer = (g, r, c) => {
   g.lineBetween(-0.45 * r, 0.45 * r, 0.45 * r, -0.45 * r);
 };
 
+// Combo: a small flame
+export const comboIcon: IconDrawer = (g, r, c) => {
+  const p = Phaser.Geom.Point;
+  g.fillStyle(c, 1).fillPoints(
+    [new p(0, -r), new p(0.5 * r, -0.2 * r), new p(0.62 * r, 0.35 * r), new p(0, 0.95 * r), new p(-0.62 * r, 0.35 * r), new p(-0.4 * r, -0.1 * r), new p(-0.15 * r, -0.3 * r)],
+    true,
+  );
+  g.fillStyle(0xffffff, 0.6).fillCircle(0, 0.42 * r, 0.28 * r); // hot core
+};
+
 // Five-pointed star, for NEW BEST
 export const starIcon: IconDrawer = (g, r, c) => {
   const points: Phaser.Geom.Point[] = [];

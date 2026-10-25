@@ -9,12 +9,15 @@ import {
   BURST_PARTICLES,
   CLOSE_CALL_DIST,
   COLORS,
+  COMBO_MAX,
+  COMBO_WINDOW_TICKS,
   FONT,
   GHOST_AGE_FADE_ROUNDS,
   GHOST_HITBOX_SCALE,
   GHOST_TRAIL_ALPHA,
   GHOST_TRAIL_WIDTH,
   JOYSTICK_RADIUS,
+  MUSIC_LAYER_ROUNDS,
   NEAR_MISS_DIST,
   PICKUP_FLASH_ALPHA,
   PICKUP_BLINK_TICKS,
@@ -53,6 +56,7 @@ import {
   TIMER_WARNING_SECONDS,
   TOUCH_DEADZONE,
   WALL_SHIFT_ROUNDS,
+  XP_PER_CLOSE_CALL,
 } from '../game/constants';
 import { applyHiResCamera } from '../game/hiRes';
 import { addGlow, addTrailPiece, cssColor, drawBackdrop, drawGrid, mixColor, setGlowColor } from '../game/visuals';
@@ -63,6 +67,7 @@ import { submitScore, type ScoreEntry } from '../game/leaderboard';
 import {
   boostIcon,
   closeCallIcon,
+  comboIcon,
   erasedIcon,
   homeIcon,
   iconButton,
@@ -142,7 +147,13 @@ export class GameScene extends Phaser.Scene {
   private ghosts: Ghost[] = [];
 
   // What happened this run, for the summary on the game-over screen
-  private runStats = { closeCalls: 0, boosts: 0, pickups: 0, erased: 0 };
+  private runStats = { closeCalls: 0, closeCallXp: 0, bestCombo: 0, boosts: 0, pickups: 0, erased: 0 };
+
+  // Close-call combo: how many in a row, and ticks left before the chain breaks
+  private combo = 0;
+  private comboTicksLeft = 0;
+  private comboBadge!: Phaser.GameObjects.Text;
+  private comboBar!: Phaser.GameObjects.Graphics;
 
   private pickup: Pickup | null = null;
   private bonusTicks = 0; // extra time from pickups, for this round only
@@ -175,7 +186,9 @@ export class GameScene extends Phaser.Scene {
     this.soundButton = null;
     this.pickup = null;
     this.bonusTicks = 0;
-    this.runStats = { closeCalls: 0, boosts: 0, pickups: 0, erased: 0 };
+    this.runStats = { closeCalls: 0, closeCallXp: 0, bestCombo: 0, boosts: 0, pickups: 0, erased: 0 };
+    this.combo = 0;
+    this.comboTicksLeft = 0;
     this.touchStart = null;
     this.touchPointerId = null;
     this.touchDir.set(0, 0);
@@ -187,6 +200,7 @@ export class GameScene extends Phaser.Scene {
     applyHiResCamera(this);
     if (data?.fromMenu) this.cameras.main.fadeIn(250, 13, 15, 20); // matches the background color
     music.start(); // keeps playing across restarts; does nothing if already running
+    music.setIntensity(0); // every run starts on the calm loop
 
     const { width, height, margin } = ARENA;
 
@@ -230,6 +244,14 @@ export class GameScene extends Phaser.Scene {
         color: COLORS.text,
       })
       .setDepth(5);
+
+    // Combo badge under the score: "x3" with a bar that drains until the chain breaks
+    this.comboBadge = this.add
+      .text(margin + 12, margin + 60, '', { fontFamily: FONT, fontSize: '24px', fontStyle: 'bold', color: COLORS.text })
+      .setOrigin(0, 0.5)
+      .setDepth(5)
+      .setVisible(false);
+    this.comboBar = this.add.graphics().setDepth(5);
 
     this.timerText = this.add
       .text(width - margin - 12, margin + 10, '', {
@@ -433,6 +455,42 @@ export class GameScene extends Phaser.Scene {
     }
     if (this.boostCooldown > 0) this.boostCooldown--;
     this.updateBoostUi();
+
+    // The combo window runs on ticks too, so pausing freezes it
+    if (this.comboTicksLeft > 0 && --this.comboTicksLeft === 0) this.combo = 0;
+    this.updateComboBadge();
+  }
+
+  // ---------- Close-call combo ----------
+
+  // White for one, yellow for a short chain, orange once it's really going
+  private comboColor(combo: number): number {
+    return combo >= 4 ? 0xff9f43 : combo >= 2 ? COLORS.target : 0xffffff;
+  }
+
+  private updateComboBadge() {
+    const showing = this.combo >= 2;
+    this.comboBadge.setVisible(showing);
+    this.comboBar.clear();
+    if (!showing) return;
+    const color = this.comboColor(this.combo);
+    this.comboBadge.setText(`x${this.combo}`).setColor(cssColor(color));
+    const { margin } = ARENA;
+    const width = 64 * (this.comboTicksLeft / COMBO_WINDOW_TICKS);
+    this.comboBar.fillStyle(COLORS.wall, 1).fillRect(margin + 12, margin + 78, 64, 4);
+    this.comboBar.fillStyle(color, 1).fillRect(margin + 12, margin + 78, width, 4);
+  }
+
+  // "x3" pops up over the player and floats away
+  private comboPopup(combo: number) {
+    const color = this.comboColor(combo);
+    const label = this.add
+      .text(this.player.x, this.player.y - 34, `x${combo}`, { fontFamily: FONT, fontSize: '30px', fontStyle: 'bold', color: cssColor(color) })
+      .setOrigin(0.5)
+      .setDepth(6)
+      .setScale(1.6);
+    this.tweens.add({ targets: label, scale: 1, duration: 160, ease: 'Back.easeOut' });
+    this.tweens.add({ targets: label, y: label.y - 36, alpha: 0, delay: 220, duration: 520, onComplete: () => label.destroy() });
   }
 
   // ---------- Game feel ----------
@@ -478,11 +536,21 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  // Slipped right past a ghost and lived
+  // Slipped right past a ghost and lived. Close calls in quick succession build a combo:
+  // each link pays more XP and gets a bigger ring, a higher chime and a popping "x2", "x3"...
   private closeCall() {
+    this.combo = this.comboTicksLeft > 0 ? this.combo + 1 : 1;
+    this.comboTicksLeft = COMBO_WINDOW_TICKS;
+    const level = Math.min(this.combo, COMBO_MAX);
+
     this.runStats.closeCalls++;
-    this.shockwave(this.player.x, this.player.y, 0xffffff, 55);
-    sfx.closeCall();
+    this.runStats.closeCallXp += XP_PER_CLOSE_CALL * level;
+    this.runStats.bestCombo = Math.max(this.runStats.bestCombo, this.combo);
+
+    this.shockwave(this.player.x, this.player.y, this.comboColor(this.combo), 55 + 12 * (level - 1));
+    sfx.closeCall(level);
+    if (this.combo >= 2) this.comboPopup(this.combo);
+    this.updateComboBadge();
   }
 
   private afterimage(alpha: number) {
@@ -563,6 +631,7 @@ export class GameScene extends Phaser.Scene {
     this.bonusTicks = 0;
     this.clearPickup();
     this.score++;
+    music.setIntensity(MUSIC_LAYER_ROUNDS.filter((r) => this.score >= r).length); // the music grows with the run
     this.updateTimer(); // after the score changes, so the wall color picks it up
     this.scoreText.setText(String(this.score));
     this.popScore();
@@ -1031,6 +1100,7 @@ export class GameScene extends Phaser.Scene {
   // ---------- Game over ----------
 
   private gameOver(title = 'CAUGHT BY YOUR PAST', culprit?: Ghost) {
+    if (this.isGameOver) return; // only ever once per run (XP and the score are saved here)
     this.isGameOver = true;
     this.hintText?.destroy(); // a run can end before the first target; the hint would sit under HOME
     this.hintText = undefined;
@@ -1038,6 +1108,7 @@ export class GameScene extends Phaser.Scene {
     setGlowColor(this.playerGlow, COLORS.playerDead);
     this.cameras.main.shake(SHAKE_MS, SHAKE_INTENSITY);
     sfx.gameOver();
+    music.setIntensity(0); // the layers drop away when the run ends
 
     const { width, height } = ARENA;
     this.add.rectangle(width / 2, height / 2, width, height, COLORS.background, 0.75).setDepth(10);
@@ -1147,13 +1218,11 @@ export class GameScene extends Phaser.Scene {
 
   // What happened this run as icon chips: close calls, boosts, pickups (and erased ghosts if any)
   private showRunStats() {
-    const { closeCalls, boosts, pickups, erased } = this.runStats;
-    const chips: [IconDrawer, number, number][] = [
-      [closeCallIcon, closeCalls, 0xffffff],
-      [boostIcon, boosts, this.body.color],
-      [pickupIcon, pickups, COLORS.pickupTime],
-    ];
-    if (erased > 0) chips.push([erasedIcon, erased, COLORS.ghostOld]);
+    const { closeCalls, bestCombo, boosts, pickups, erased } = this.runStats;
+    const chips: [IconDrawer, string, number][] = [[closeCallIcon, String(closeCalls), 0xffffff]];
+    if (bestCombo >= 2) chips.push([comboIcon, `x${bestCombo}`, this.comboColor(bestCombo)]); // best combo of the run
+    chips.push([boostIcon, String(boosts), this.body.color], [pickupIcon, String(pickups), COLORS.pickupTime]);
+    if (erased > 0) chips.push([erasedIcon, String(erased), COLORS.ghostOld]);
 
     const y = 258;
     const step = 140;
@@ -1162,7 +1231,7 @@ export class GameScene extends Phaser.Scene {
       const icon = this.add.graphics().setDepth(13).setPosition(x - 20, y);
       draw(icon, 14, color);
       this.add
-        .text(x + 2, y, String(value), { fontFamily: FONT, fontSize: '26px', fontStyle: 'bold', color: COLORS.text })
+        .text(x + 2, y, value, { fontFamily: FONT, fontSize: '26px', fontStyle: 'bold', color: COLORS.text })
         .setOrigin(0, 0.5)
         .setDepth(13);
     });
@@ -1170,7 +1239,8 @@ export class GameScene extends Phaser.Scene {
 
   // XP for this run, a level bar that fills up, and any look the run unlocked. One line, no waiting.
   private showXp() {
-    const res = addXp(runXp({ rounds: this.score, closeCalls: this.runStats.closeCalls, pickups: this.runStats.pickups }));
+    const { closeCallXp, pickups } = this.runStats;
+    const res = addXp(runXp({ rounds: this.score, closeCallXp, pickups }));
     const levelUp = res.levelAfter > res.levelBefore;
     const y = 310;
     const text = (s: string, color: string, bold: boolean) =>

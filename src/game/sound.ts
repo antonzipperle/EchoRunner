@@ -93,7 +93,11 @@ export const sfx = {
   pickup: () => blip(660, 1320, 0.12, 'square'),
   boost: () => blip(280, 840, 0.14, 'sawtooth'),
   powerup: () => blip(520, 1040, 0.2, 'triangle'),
-  closeCall: () => blip(1400, 1900, 0.09, 'sine', 0, 0.4),
+  // Climbs a minor third with every link of a combo (level 1 = a single close call)
+  closeCall: (level = 1) => {
+    const up = 2 ** ((3 * (Math.min(level, 5) - 1)) / 12);
+    blip(1400 * up, 1900 * up, 0.09, 'sine', 0, 0.4);
+  },
 
   // Rising C major arpeggio: C5 E5 G5, then C6 held a little longer
   start: () => {
@@ -111,6 +115,8 @@ export const sfx = {
 // ---------- Background music ----------
 // A quiet loop generated on the fly: an arpeggio over a soft bass line, Am F C G at 96 BPM.
 // Notes are scheduled a little ahead on the audio clock, so timer hiccups don't break the rhythm.
+// It grows with the run: intensity 1 adds a soft hi-hat, 2 a second melody, 3 a low kick,
+// and each step opens the filter a little. The game sets the intensity (see music.setIntensity).
 
 const EIGHTH = 60 / 96 / 2; // seconds per eighth note
 const LOOKAHEAD = 0.5; // seconds of music scheduled ahead
@@ -123,12 +129,51 @@ const CHORDS = [
 const BASS = [45, 41, 48, 43]; // A2 F2 C3 G2
 const ARP = [0, 1, 2, 3, 2, 1, 2, 1]; // which chord tone each eighth plays (3 = root an octave up)
 
+const FILTER_HZ = [1800, 2200, 2600, 3000]; // brighter as the intensity rises
+
 let musicBus: GainNode | null = null;
+let musicFilter: BiquadFilterNode | null = null;
+let noise: AudioBuffer | null = null; // a short burst of white noise for the hi-hat
 let musicTimer: number | null = null;
 let nextNoteTime = 0;
 let step = 0;
+let intensity = 0; // 0..3
 
 const midiToHz = (m: number) => 440 * 2 ** ((m - 69) / 12);
+
+// A very short, high noise tick
+function hat(audio: AudioContext, at: number) {
+  if (!noise) {
+    noise = audio.createBuffer(1, Math.floor(audio.sampleRate * 0.05), audio.sampleRate);
+    const data = noise.getChannelData(0);
+    for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+  }
+  const src = audio.createBufferSource();
+  src.buffer = noise;
+  const highpass = audio.createBiquadFilter();
+  highpass.type = 'highpass';
+  highpass.frequency.value = 7000;
+  const gain = audio.createGain();
+  gain.gain.setValueAtTime(0.35, at);
+  gain.gain.exponentialRampToValueAtTime(0.0001, at + 0.04);
+  src.connect(highpass).connect(gain).connect(musicBus!);
+  src.start(at);
+  src.stop(at + 0.05);
+}
+
+// A soft low thump: a sine that drops in pitch
+function kick(audio: AudioContext, at: number) {
+  const osc = audio.createOscillator();
+  const gain = audio.createGain();
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(110, at);
+  osc.frequency.exponentialRampToValueAtTime(42, at + 0.14);
+  gain.gain.setValueAtTime(1.1, at);
+  gain.gain.exponentialRampToValueAtTime(0.0001, at + 0.22);
+  osc.connect(gain).connect(musicBus!);
+  osc.start(at);
+  osc.stop(at + 0.22);
+}
 
 function musicNote(audio: AudioContext, hz: number, at: number, seconds: number, type: OscillatorType, volume: number) {
   const osc = audio.createOscillator();
@@ -154,6 +199,14 @@ function scheduleMusic() {
     musicNote(audio, midiToHz(tones[ARP[pos]] + 12), nextNoteTime, 0.4, 'triangle', 0.5);
     if (pos === 0 || pos === 4) musicNote(audio, midiToHz(BASS[bar]), nextNoteTime, EIGHTH * 4, 'sine', 0.9);
 
+    // Layers that join as the run heats up
+    if (intensity >= 1 && pos % 2 === 1) hat(audio, nextNoteTime); // off-beat hi-hat
+    if (intensity >= 2 && pos % 2 === 0) {
+      // A second voice an octave above, walking the chord the other way
+      musicNote(audio, midiToHz(tones[3 - (pos / 2)] + 24), nextNoteTime, 0.3, 'sine', 0.22);
+    }
+    if (intensity >= 3 && (pos === 0 || pos === 4)) kick(audio, nextNoteTime);
+
     nextNoteTime += EIGHTH;
     step = (step + 1) % (8 * CHORDS.length);
   }
@@ -166,12 +219,12 @@ export const music = {
     if (!audio || musicTimer !== null) return;
     if (!musicBus) {
       // Music runs through its own volume and a low-pass filter that keeps it soft
-      const filter = audio.createBiquadFilter();
-      filter.type = 'lowpass';
-      filter.frequency.value = 1800;
+      musicFilter = audio.createBiquadFilter();
+      musicFilter.type = 'lowpass';
+      musicFilter.frequency.value = FILTER_HZ[intensity];
       musicBus = audio.createGain();
       musicBus.gain.value = muted ? 0 : MUSIC_VOLUME;
-      musicBus.connect(filter).connect(audio.destination);
+      musicBus.connect(musicFilter).connect(audio.destination);
     }
     nextNoteTime = Math.max(nextNoteTime, audio.currentTime + 0.05);
     scheduleMusic();
@@ -182,5 +235,15 @@ export const music = {
     if (musicTimer === null) return;
     window.clearInterval(musicTimer);
     musicTimer = null;
+  },
+
+  // 0 = the calm loop, up to 3 = every layer. Changes are heard from the next scheduled notes.
+  setIntensity(level: number) {
+    intensity = Math.max(0, Math.min(3, Math.round(level)));
+    if (ctx && musicFilter) musicFilter.frequency.setTargetAtTime(FILTER_HZ[intensity], ctx.currentTime, 0.5);
+  },
+
+  getIntensity(): number {
+    return intensity;
   },
 };

@@ -126,6 +126,7 @@ export class StartScene extends Phaser.Scene {
     this.body = selectedBody();
     this.trail = selectedTrail();
     this.trailPieces = 0;
+    music.setIntensity(0); // calm loop on the home screen
 
     applyHiResCamera(this);
     this.cameras.main.fadeIn(300, 13, 15, 20); // matches the background color
