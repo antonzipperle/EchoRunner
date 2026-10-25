@@ -9,6 +9,7 @@ import {
   BURST_PARTICLES,
   CLOSE_CALL_DIST,
   COLORS,
+  FONT,
   GHOST_AGE_FADE_ROUNDS,
   GHOST_HITBOX_SCALE,
   GHOST_TRAIL_ALPHA,
@@ -131,8 +132,9 @@ export class GameScene extends Phaser.Scene {
   private boostCooldown = 0; // ticks until the next boost; not reset between rounds
   private lastDir = new Phaser.Math.Vector2(1, 0); // so boosting while standing still still dashes
   private vel = new Phaser.Math.Vector2(); // px/s; eases toward the input rather than snapping to it
-  private boostButton!: Phaser.GameObjects.Text;
-  private boostBar!: Phaser.GameObjects.Graphics;
+  // Boost: a small icon in the HUD and, on touch screens, a big thumb button. Each has a recharge ring.
+  private boostButtons: { button: IconButton; ring: Phaser.GameObjects.Graphics; radius: number; baseAlpha: number }[] = [];
+  private thumbBoost: { button: IconButton; ring: Phaser.GameObjects.Graphics } | null = null;
   private joystick!: Phaser.GameObjects.Graphics;
 
   private recordings: Recording[] = [];
@@ -222,7 +224,7 @@ export class GameScene extends Phaser.Scene {
 
     this.scoreText = this.add
       .text(margin + 12, margin + 10, '0', {
-        fontFamily: 'monospace',
+        fontFamily: FONT,
         fontSize: '32px',
         fontStyle: 'bold',
         color: COLORS.text,
@@ -231,7 +233,7 @@ export class GameScene extends Phaser.Scene {
 
     this.timerText = this.add
       .text(width - margin - 12, margin + 10, '', {
-        fontFamily: 'monospace',
+        fontFamily: FONT,
         fontSize: '32px',
         fontStyle: 'bold',
         color: COLORS.text,
@@ -241,9 +243,9 @@ export class GameScene extends Phaser.Scene {
     this.updateTimer();
 
     this.hintText = this.add
-      .text(width / 2, height - margin - 45, 'Grab the yellow square. Avoid your past.\nMove: WASD, arrows or drag     Dash: Shift or BOOST', {
+      .text(width / 2, height - margin - 45, 'Grab the yellow square. Avoid your past.\nMove: WASD, arrows or drag     Dash: Shift or the » button', {
         align: 'center',
-        fontFamily: 'monospace',
+        fontFamily: FONT,
         fontSize: '20px',
         color: COLORS.textMuted,
       })
@@ -499,17 +501,39 @@ export class GameScene extends Phaser.Scene {
     setGlowColor(this.playerGlow, color);
   }
 
+  // The ring around each boost button fills up as it recharges; the button dims while it can't fire
   private updateBoostUi() {
     const ready = this.boostCooldown === 0;
-    this.boostButton.setColor(ready ? COLORS.text : COLORS.textMuted);
-
-    // Recharge bar under the button: full when ready
-    const barWidth = 100;
-    const { x, y } = this.boostButton;
     const fill = 1 - this.boostCooldown / BOOST_COOLDOWN_TICKS;
-    this.boostBar.clear();
-    this.boostBar.fillStyle(COLORS.wall, 1).fillRect(x - barWidth / 2, y + 16, barWidth, 3);
-    this.boostBar.fillStyle(COLORS.player, 1).fillRect(x - barWidth / 2, y + 16, barWidth * fill, 3);
+    for (const { button, ring, radius, baseAlpha } of this.boostButtons) {
+      button.container.setAlpha(baseAlpha * (ready ? 1 : 0.55));
+      const r = radius + 6;
+      ring.clear();
+      ring.lineStyle(4, COLORS.panelRing, 0.9 * baseAlpha).strokeCircle(0, 0, r);
+      if (fill > 0) {
+        ring.lineStyle(4, COLORS.player, ready ? baseAlpha : 0.8 * baseAlpha);
+        ring.beginPath();
+        ring.arc(0, 0, r, -Math.PI / 2, -Math.PI / 2 + fill * Math.PI * 2, false);
+        ring.strokePath();
+      }
+    }
+  }
+
+  private addBoostButton(x: number, y: number, radius: number, baseAlpha: number) {
+    const button = iconButton(this, x, y, radius, boostIcon, () => this.tryBoost(), {
+      onPress: true, // fires the moment the finger lands
+      iconColor: COLORS.player,
+    });
+    const ring = this.add.graphics().setDepth(5).setPosition(x, y);
+    this.boostButtons.push({ button, ring, radius, baseAlpha });
+    return { button, ring };
+  }
+
+  // The thumb button appears on touch screens, or the first time the game is touched
+  private showThumbBoost() {
+    if (!this.thumbBoost) return;
+    this.thumbBoost.button.container.setVisible(true);
+    this.thumbBoost.ring.setVisible(true);
   }
 
   private nextRound() {
@@ -600,7 +624,7 @@ export class GameScene extends Phaser.Scene {
     const icon = kind === 'time' ? this.drawClockIcon(color) : this.drawEraseIcon(color);
     const label = this.add
       .text(0, -PICKUP_RADIUS - 18, kind === 'time' ? '+TIME' : 'ERASE', {
-        fontFamily: 'monospace',
+        fontFamily: FONT,
         fontSize: '20px', // smallest size that stays readable when the game is shown at 800x450
         fontStyle: 'bold',
         color: cssColor(color),
@@ -711,7 +735,7 @@ export class GameScene extends Phaser.Scene {
 
   private floatText(x: number, y: number, text: string) {
     const t = this.add
-      .text(x, y, text, { fontFamily: 'monospace', fontSize: '20px', color: COLORS.text })
+      .text(x, y, text, { fontFamily: FONT, fontSize: '20px', color: COLORS.text })
       .setOrigin(0.5)
       .setDepth(6);
     this.tweens.add({ targets: t, y: y - 40, alpha: 0, duration: 700, onComplete: () => t.destroy() });
@@ -866,6 +890,7 @@ export class GameScene extends Phaser.Scene {
     // Touch / mouse: drag like a virtual joystick from where you pressed down.
     // Only the finger that started the drag steers, so tapping BOOST with a second finger is safe.
     this.input.on('pointerdown', (p: Phaser.Input.Pointer, over: Phaser.GameObjects.GameObject[]) => {
+      if (p.wasTouch) this.showThumbBoost();
       if (over.length > 0 || this.touchStart) return; // buttons must not start a drag
       this.touchStart = new Phaser.Math.Vector2(p.worldX, p.worldY); // world space, not canvas pixels
       this.touchPointerId = p.id;
@@ -902,20 +927,18 @@ export class GameScene extends Phaser.Scene {
   // ---------- Pause and mute ----------
 
   private createButtons() {
-    const { width, margin } = ARENA;
-    const style = { fontFamily: 'monospace', fontSize: '20px', color: COLORS.textMuted };
-    const y = margin + 24;
+    const { width, height, margin } = ARENA;
 
     // Pause is a round icon near the timer; sound lives in the pause menu now
     iconButton(this, width - margin - 118, margin + 28, 24, pauseIcon, () => this.togglePause());
 
-    this.boostButton = this.add
-      .text(width / 2, y, 'BOOST [SHIFT]', style)
-      .setOrigin(0.5)
-      .setDepth(5)
-      .setInteractive({ useHandCursor: true });
-    this.boostButton.on('pointerdown', () => this.tryBoost()); // on press, not release, for snappy taps
-    this.boostBar = this.add.graphics().setDepth(5);
+    // Boost: a small icon at the top (Shift on a keyboard), plus a big button under the right thumb
+    this.boostButtons = [];
+    this.addBoostButton(width / 2, margin + 28, 24, 1);
+    this.thumbBoost = this.addBoostButton(width - margin - 96, height - margin - 96, 58, 0.85);
+    const touchScreen = this.sys.game.device.input.touch;
+    this.thumbBoost.button.container.setVisible(touchScreen);
+    this.thumbBoost.ring.setVisible(touchScreen);
     this.updateBoostUi();
   }
 
@@ -947,7 +970,7 @@ export class GameScene extends Phaser.Scene {
       .setDepth(20)
       .setInteractive();
     const title = this.add
-      .text(width / 2, 190, 'PAUSED', { fontFamily: 'monospace', fontSize: '48px', fontStyle: 'bold', color: COLORS.text })
+      .text(width / 2, 190, 'PAUSED', { fontFamily: FONT, fontSize: '48px', fontStyle: 'bold', color: COLORS.text })
       .setOrigin(0.5)
       .setDepth(21);
 
@@ -967,7 +990,7 @@ export class GameScene extends Phaser.Scene {
     });
     const keyHint = (x: number, y: number, key: string) =>
       this.add
-        .text(x, y, key, { fontFamily: 'monospace', fontSize: '20px', color: COLORS.textMuted })
+        .text(x, y, key, { fontFamily: FONT, fontSize: '20px', color: COLORS.textMuted })
         .setOrigin(0.5)
         .setDepth(21);
     this.pauseUi = [
@@ -1032,7 +1055,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.add
-      .text(width / 2, 86, title, { fontFamily: 'monospace', fontSize: '44px', fontStyle: 'bold', color: COLORS.text })
+      .text(width / 2, 86, title, { fontFamily: FONT, fontSize: '44px', fontStyle: 'bold', color: COLORS.text })
       .setOrigin(0.5)
       .setDepth(13);
 
@@ -1072,7 +1095,7 @@ export class GameScene extends Phaser.Scene {
 
     const keyHint = (x: number, key: string) =>
       this.add
-        .text(x, y + 60 + 22, key, { fontFamily: 'monospace', fontSize: '20px', color: COLORS.textMuted })
+        .text(x, y + 60 + 22, key, { fontFamily: FONT, fontSize: '20px', color: COLORS.textMuted })
         .setOrigin(0.5)
         .setDepth(13);
     keyHint(width / 2 - side, 'H');
@@ -1099,11 +1122,11 @@ export class GameScene extends Phaser.Scene {
   private showScore(isBest: boolean) {
     const { width } = ARENA;
     const count = this.add
-      .text(width / 2, 158, String(this.score), { fontFamily: 'monospace', fontSize: '72px', fontStyle: 'bold', color: COLORS.text })
+      .text(width / 2, 158, String(this.score), { fontFamily: FONT, fontSize: '72px', fontStyle: 'bold', color: COLORS.text })
       .setOrigin(0.5)
       .setDepth(13);
     this.add
-      .text(width / 2, 206, this.score === 1 ? 'ROUND' : 'ROUNDS', { fontFamily: 'monospace', fontSize: '20px', color: COLORS.textMuted })
+      .text(width / 2, 206, this.score === 1 ? 'ROUND' : 'ROUNDS', { fontFamily: FONT, fontSize: '20px', color: COLORS.textMuted })
       .setOrigin(0.5)
       .setDepth(13);
     if (!isBest) return;
@@ -1112,7 +1135,7 @@ export class GameScene extends Phaser.Scene {
     const star = this.add.graphics().setDepth(13).setPosition(x, 150);
     starIcon(star, 16, COLORS.target);
     const label = this.add
-      .text(x + 24, 150, 'NEW BEST', { fontFamily: 'monospace', fontSize: '22px', fontStyle: 'bold', color: cssColor(COLORS.target) })
+      .text(x + 24, 150, 'NEW BEST', { fontFamily: FONT, fontSize: '22px', fontStyle: 'bold', color: cssColor(COLORS.target) })
       .setOrigin(0, 0.5)
       .setDepth(13);
     for (const part of [star, label]) {
@@ -1139,7 +1162,7 @@ export class GameScene extends Phaser.Scene {
       const icon = this.add.graphics().setDepth(13).setPosition(x - 20, y);
       draw(icon, 14, color);
       this.add
-        .text(x + 2, y, String(value), { fontFamily: 'monospace', fontSize: '26px', fontStyle: 'bold', color: COLORS.text })
+        .text(x + 2, y, String(value), { fontFamily: FONT, fontSize: '26px', fontStyle: 'bold', color: COLORS.text })
         .setOrigin(0, 0.5)
         .setDepth(13);
     });
@@ -1152,7 +1175,7 @@ export class GameScene extends Phaser.Scene {
     const y = 310;
     const text = (s: string, color: string, bold: boolean) =>
       this.add
-        .text(0, y, s, { fontFamily: 'monospace', fontSize: '20px', fontStyle: bold ? 'bold' : 'normal', color })
+        .text(0, y, s, { fontFamily: FONT, fontSize: '20px', fontStyle: bold ? 'bold' : 'normal', color })
         .setOrigin(0, 0.5)
         .setDepth(13);
 
@@ -1223,7 +1246,7 @@ export class GameScene extends Phaser.Scene {
     rows.forEach(({ entry, index }, row) => {
       const y = top + row * rowHeight;
       const mine = index === rank;
-      const style = { fontFamily: 'monospace', fontSize: '20px', fontStyle: mine ? 'bold' : 'normal', color: mine ? COLORS.text : COLORS.textMuted };
+      const style = { fontFamily: FONT, fontSize: '20px', fontStyle: mine ? 'bold' : 'normal', color: mine ? COLORS.text : COLORS.textMuted };
       this.add.text(left - 16, y, String(index + 1), style).setOrigin(1, 0.5).setDepth(13);
       numbers.push(this.add.text(left, y, String(entry.score), style).setOrigin(0, 0.5).setDepth(13));
     });

@@ -19,7 +19,8 @@ export function iconButton(
   radius: number,
   draw: IconDrawer,
   onTap: () => void,
-  opts: { fill?: number; iconColor?: number; ring?: number; depth?: number } = {},
+  // onPress: fire when the finger lands instead of when it lifts (for BOOST, where timing matters)
+  opts: { fill?: number; iconColor?: number; ring?: number; depth?: number; onPress?: boolean } = {},
 ): IconButton {
   const iconColor = opts.iconColor ?? COLORS.icon;
   const bg = scene.add
@@ -37,10 +38,13 @@ export function iconButton(
   });
   bg.on('pointerover', () => container.setScale(1.06));
   bg.on('pointerout', () => container.setScale(1));
-  bg.on('pointerdown', () => container.setScale(0.92)); // feels pressed under a finger
+  bg.on('pointerdown', () => {
+    container.setScale(0.92); // feels pressed under a finger
+    if (opts.onPress) onTap();
+  });
   bg.on('pointerup', () => {
     container.setScale(1.06);
-    onTap();
+    if (!opts.onPress) onTap();
   });
 
   return {

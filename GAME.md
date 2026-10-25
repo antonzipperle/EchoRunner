@@ -88,6 +88,9 @@ Single-screen arena game, Phaser 3 + TypeScript + Vite.
 29. [done] Icon-based game-over screen: a big round count with a star NEW BEST badge, the run's stats as icon chips
     (close calls, boosts, pickups, erased ghosts), the XP row, your top runs as bars instead of text rows, and round
     HOME / RESTART / CUSTOMIZE buttons (keys H / Space / C). CUSTOMIZE opens the start screen on the locker.
+30. [done] Mobile polish: a big round BOOST button under the right thumb on touch screens (fires on touch-down,
+    recharge ring), multi-touch turned on so one thumb steers while the other boosts, BOOST in the HUD is a round
+    icon with the same ring, and all text uses one font list (FONT) so Safari no longer falls back to Courier.
 
 ## Later (ideas parked, not started)
 - CrazyGames Full Launch (only if they select the game): CrazyGames SDK, gameplay start/stop events,

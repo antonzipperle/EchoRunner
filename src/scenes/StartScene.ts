@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import {
   ARENA,
   COLORS,
+  FONT,
   PLAYER_SIZE,
   SPAWN_RING_RADIUS,
   START_GHOST_COUNT,
@@ -186,7 +187,7 @@ export class StartScene extends Phaser.Scene {
   }
 
   private createTitle() {
-    const style = { fontFamily: 'monospace', fontSize: `${TITLE_SIZE}px`, fontStyle: 'bold' };
+    const style = { fontFamily: FONT, fontSize: `${TITLE_SIZE}px`, fontStyle: 'bold' };
     [...TITLE].forEach((char, i) => {
       if (char === ' ') return;
       const baseX = ARENA.width / 2 + (i - (TITLE.length - 1) / 2) * LETTER_STEP;
@@ -209,7 +210,7 @@ export class StartScene extends Phaser.Scene {
     const { width } = ARENA;
     const text = (x: number, y: number, s: string, size: number, color: string) =>
       this.add
-        .text(x, y, s, { fontFamily: 'monospace', fontSize: `${size}px`, color })
+        .text(x, y, s, { fontFamily: FONT, fontSize: `${size}px`, color })
         .setOrigin(0.5)
         .setDepth(5)
         .setAlpha(0);
@@ -254,7 +255,7 @@ export class StartScene extends Phaser.Scene {
 
     const keyHint = (x: number, s: string) =>
       this.add
-        .text(x, BUTTON_Y + 56 + 22, s, { fontFamily: 'monospace', fontSize: '20px', color: COLORS.textMuted })
+        .text(x, BUTTON_Y + 56 + 22, s, { fontFamily: FONT, fontSize: '20px', color: COLORS.textMuted })
         .setOrigin(0.5)
         .setDepth(5)
         .setAlpha(0);
@@ -343,7 +344,7 @@ export class StartScene extends Phaser.Scene {
 
     // Two rows of tiles: bodies, then trails. Short row labels on the left.
     const label = (y: number, s: string) =>
-      this.add.text(210, y, s, { fontFamily: 'monospace', fontSize: '20px', fontStyle: 'bold', color: COLORS.textMuted }).setOrigin(0, 0.5);
+      this.add.text(210, y, s, { fontFamily: FONT, fontSize: '20px', fontStyle: 'bold', color: COLORS.textMuted }).setOrigin(0, 0.5);
     layer.add([label(BODY_ROW_Y, 'BODY'), label(TRAIL_ROW_Y, 'TRAIL')]);
 
     const firstX = 360;
@@ -358,7 +359,7 @@ export class StartScene extends Phaser.Scene {
     const next = nextUnlockLevel();
     const footer = this.add
       .text(width / 2 - 20, 600, next ? `LEVEL ${level}   ·   NEXT UNLOCK AT ${next}` : `LEVEL ${level}   ·   ALL UNLOCKED`, {
-        fontFamily: 'monospace',
+        fontFamily: FONT,
         fontSize: '20px',
         color: COLORS.textMuted,
       })
@@ -414,7 +415,7 @@ export class StartScene extends Phaser.Scene {
       if (locked && !old) {
         tile.container.add(
           this.add
-            .text(0, 24, `LV ${tile.level}`, { fontFamily: 'monospace', fontSize: '18px', fontStyle: 'bold', color: COLORS.textMuted })
+            .text(0, 24, `LV ${tile.level}`, { fontFamily: FONT, fontSize: '18px', fontStyle: 'bold', color: COLORS.textMuted })
             .setOrigin(0.5)
             .setName('lv'),
         );

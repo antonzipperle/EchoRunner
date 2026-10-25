@@ -18,6 +18,8 @@ const config: Phaser.Types.Core.GameConfig = {
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,
   },
+  // Phaser tracks a single touch unless told otherwise; one thumb steers while the other taps BOOST
+  input: { activePointers: 3 },
   scene: [StartScene, GameScene],
 };
 

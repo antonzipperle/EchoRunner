@@ -6,6 +6,11 @@ export const ARENA = {
   margin: 40, // space between screen edge and arena wall
 };
 
+// The game's one font. Plain "monospace" lets each browser pick, and Safari picks a typewriter
+// Courier; this list asks for a clean mono first (SF Mono on Apple, Menlo, Consolas on Windows,
+// DejaVu on Linux, Roboto Mono on Android) and only falls back to the browser's own at the end.
+export const FONT = 'ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", "Roboto Mono", monospace';
+
 // The canvas is drawn this many times larger than the 1280x720 game space, so text and shapes
 // stay sharp on big and high-DPI screens. Game logic never sees this; see src/game/hiRes.ts.
 export const RENDER_SCALE = 2;
