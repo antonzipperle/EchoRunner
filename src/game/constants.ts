@@ -17,6 +17,14 @@ export const TICK_MS = 1000 / 60;
 export const PLAYER_SIZE = 24;
 export const PLAYER_SPEED = 320; // pixels per second
 
+// Movement has a little inertia: each tick the velocity moves this share of the way toward what the
+// input asks for. Turns become arcs instead of sharp corners, so ghost trails curve too.
+// 1 = instant (the old feel); lower = floatier. Boosts use a snappier value so the dash still kicks in.
+export const PLAYER_RESPONSE = 0.13;
+export const PLAYER_BOOST_RESPONSE = 0.35;
+// Letting go of the keys stops you faster than you turn, so dodging stays precise (about 15 px of glide)
+export const PLAYER_STOP_RESPONSE = 0.3;
+
 // Boost: a short burst of speed on Shift (or the on-screen button), then a cooldown.
 // The cooldown keeps running across rounds. Boosted movement is recorded like any other,
 // so your future ghosts dash too. At 3x for 15 ticks a boost covers about 240 px.

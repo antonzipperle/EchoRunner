@@ -75,6 +75,9 @@ Single-screen arena game, Phaser 3 + TypeScript + Vite.
     and a look picker (arrows / A-D / tap < >) previewed on the demo runner. Saved in localStorage.
 25. [done] Back to the start screen: a small HOME [H] button on the game-over screen (under RESTART, which stays the
     fast path along with Space) and on the pause screen. Leaving from pause ends the run without XP or a score.
+26. [done] Movement with a little inertia: the velocity eases toward the input (PLAYER_RESPONSE), so turns with
+    WASD become arcs and ghost trails curve instead of being straight lines with sharp corners. Boosts kick in
+    fast and their extra speed bleeds off smoothly; walls stop you in that direction.
 
 ## Later (ideas parked, not started)
 - CrazyGames Full Launch (only if they select the game): CrazyGames SDK, gameplay start/stop events,

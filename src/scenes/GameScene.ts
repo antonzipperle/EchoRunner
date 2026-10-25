@@ -30,9 +30,12 @@ import {
   PICKUP_PATH_T_MIN,
   PICKUP_RADIUS,
   PICKUP_TIME_BONUS_TICKS,
+  PLAYER_BOOST_RESPONSE,
   PLAYER_POP_SCALE,
+  PLAYER_RESPONSE,
   PLAYER_SIZE,
   PLAYER_SPEED,
+  PLAYER_STOP_RESPONSE,
   PLAYER_STRETCH,
   ROUND_TIME_MIN_TICKS,
   ROUND_TIME_SHRINK_TICKS,
@@ -108,6 +111,7 @@ export class GameScene extends Phaser.Scene {
   private boostTicksLeft = 0; // ticks of boosted speed remaining
   private boostCooldown = 0; // ticks until the next boost; not reset between rounds
   private lastDir = new Phaser.Math.Vector2(1, 0); // so boosting while standing still still dashes
+  private vel = new Phaser.Math.Vector2(); // px/s; eases toward the input rather than snapping to it
   private boostButton!: Phaser.GameObjects.Text;
   private boostBar!: Phaser.GameObjects.Graphics;
   private joystick!: Phaser.GameObjects.Graphics;
@@ -156,6 +160,7 @@ export class GameScene extends Phaser.Scene {
     this.boostTicksLeft = 0;
     this.boostCooldown = 0;
     this.lastDir.set(1, 0);
+    this.vel.set(0, 0);
 
     applyHiResCamera(this);
     if (data?.fromMenu) this.cameras.main.fadeIn(250, 13, 15, 20); // matches the background color
@@ -359,20 +364,29 @@ export class GameScene extends Phaser.Scene {
     if (boosting && dir.lengthSq() === 0) dir = this.lastDir; // dash even when no key is held
     const speed = PLAYER_SPEED * (boosting ? BOOST_SPEED_MULT : 1);
 
+    // Ease toward the wanted velocity: turns curve, starts and stops glide a little,
+    // and after a boost the extra speed bleeds off instead of cutting out
+    const response = boosting
+      ? PLAYER_BOOST_RESPONSE
+      : dir.lengthSq() === 0
+        ? PLAYER_STOP_RESPONSE
+        : PLAYER_RESPONSE;
+    this.vel.x += (dir.x * speed - this.vel.x) * response;
+    this.vel.y += (dir.y * speed - this.vel.y) * response;
+
     const dt = TICK_MS / 1000;
     const half = PLAYER_SIZE / 2;
     const { width, height, margin } = ARENA;
+    const minX = margin + half, maxX = width - margin - half;
+    const minY = margin + half, maxY = height - margin - half;
 
-    this.player.x = Phaser.Math.Clamp(
-      this.player.x + dir.x * speed * dt,
-      margin + half,
-      width - margin - half,
-    );
-    this.player.y = Phaser.Math.Clamp(
-      this.player.y + dir.y * speed * dt,
-      margin + half,
-      height - margin - half,
-    );
+    const x = this.player.x + this.vel.x * dt;
+    const y = this.player.y + this.vel.y * dt;
+    this.player.x = Phaser.Math.Clamp(x, minX, maxX);
+    this.player.y = Phaser.Math.Clamp(y, minY, maxY);
+    // Walls stop you in that direction, so you don't stay "pressed" against them
+    if (x !== this.player.x) this.vel.x = 0;
+    if (y !== this.player.y) this.vel.y = 0;
   }
 
   // ---------- Boost ----------
